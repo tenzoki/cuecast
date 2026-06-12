@@ -293,7 +293,7 @@ begins.
        (no form), gateway (no form), invalid state (error).
    - Dependencies: Step 2, Step 5.
 
-7. **`ValidateInput` — submitted-input validation against the shape (C3) — RESOLVED: Option A (Go-native)**
+7. **`ValidateInput` — submitted-input validation against the shape (C3) — RESOLVED: Option A (Go-native)** — [DONE]
 
    > **Plan-review resolution (260612-1604):** Option A — Go-native constraint checking. Implement the Option-A path only; ignore the Option-B/C branches below. No JSON Schema, no dependency, no `DeriveSchema` export in v1.
 
