@@ -518,3 +518,12 @@ decisions' surfaces, so the fixture validates whichever options win at plan revi
   implements Option 2 only. (`decisions/260612-1557[a]-gateway-condition-expression-language.md`.)
 - [x] **Module path** — RESOLVED: `github.com/tenzoki/cuecast`, remote `https://github.com/tenzoki/cuecast`.
   Step 1 sets it.
+
+## Reconciliation Log
+
+**260612 (reconciler, code-domain, post-Turn-2):** Verified the full plan against the codebase and git.
+
+- **Build/test green:** `go build ./...`, `go vet ./...`, `go test ./... -count=1` all pass (pkg/engine + pkg/model). 13 commits on `main` (`70a0c4e`..`c7e2606`): 9 plan-build (Turn 1) + 4 coderev fixes (Turn 2).
+- **All 9 steps confirmed `[DONE]` and accurately so.** The claimed public surface exists and matches the API Changes section: `ParseModel`/`ParseShape` (pkg/model/parse.go:18,33), `Validate` (validate.go:28), `Process` (process.go:23), `ValidateInput` (validate_input.go:34), `AccNext` (accnext.go:26), `MergeInput` (contracts.go:120). Step 8's gateway DSL is a genuinely hand-written lexer/parser/evaluator (condition.go:98+), go.mod stdlib-only — no cel-go, no JSON-schema dependency, consistent with the Option A / Option 2 plan-review resolutions.
+- **Header `**Status:** Complete` is correct.** Recommend the orchestrator close the plan filename `[p]`→`[c]` and advance the source spec `260612-1525[o]-spec-cuecast-bpm-engine.md` (Draft) to `[c]` — both are fully consumed/realised. (Reconciler does not rename planning closure markers; flagged for the orchestrator.)
+- **No drift between plan and code found.** No new issues filed.

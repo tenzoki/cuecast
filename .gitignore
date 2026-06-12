@@ -22,3 +22,13 @@ go.work.sum
 *~
 .idea/
 .vscode/
+
+# fusion-workbench — transient/local session files (durable planning artifacts stay tracked)
+fusion-workbench/monitor
+fusion-workbench/orchestrator-live.md
+fusion-workbench/orchestrator-events.jsonl
+fusion-workbench/agentstate.yaml
+fusion-workbench/.session-marker
+fusion-workbench/.guard-state/
+fusion-workbench/.commit-lock/
+fusion-workbench/stashes/
