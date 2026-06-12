@@ -326,7 +326,7 @@ begins.
        the `select`/`options` and required constraints; a test confirms it.
    - Dependencies: Step 2, Step 5, Step 6; **the plan-review resolution of `260612-1526[o]`**.
 
-8. **`AccNext` — next-state computation: sequence flow + exclusive-gateway evaluation (C4) — RESOLVED: Option 2 (Go infix DSL)**
+8. **`AccNext` — next-state computation: sequence flow + exclusive-gateway evaluation (C4) — RESOLVED: Option 2 (Go infix DSL)** — [DONE]
 
    > **Plan-review resolution (260612-1604):** Option 2 — Go-evaluated infix expression DSL. Implement the Option-2 path only; ignore the Option-1/3 branches below. `Condition` wraps an expression string; ship a small hand-written lexer/parser/evaluator over `Context` keys (comparisons, boolean connectives `&&`/`||`/`!`, literals). `Validate` parses each condition and reports parse errors against the flow id. Evaluator sits behind the `evalCondition(cond, ctx) (bool, error)` seam.
 

@@ -250,9 +250,3 @@ func checkConditions(flows []model.SequenceFlow) []ValidationError {
 	}
 	return errs
 }
-
-// validateCondition reports a parse fault for a flow condition, or nil if it is
-// structurally well-formed. The real infix parser lands in condition.go, which
-// replaces this no-op; until then conditions are accepted structurally so Validate's
-// graph checks build and pass independently.
-func validateCondition(model.Condition) error { return nil }
