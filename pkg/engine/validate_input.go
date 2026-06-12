@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -19,8 +20,9 @@ var dateLayouts = []string{"2006-01-02", time.RFC3339}
 // checks the typed Input directly:
 //
 //   - required-field presence (a required field must have a non-nil value);
-//   - per-field type: text is a string, list is a slice, number is numeric (or a
-//     numeric string), date parses (calendar date or RFC3339), select is a string;
+//   - per-field type: text is a string, list is a slice (of any element type),
+//     number is numeric (or a numeric string), date parses (calendar date or
+//     RFC3339), select is a string;
 //   - select value is one of the field's Options.
 //
 // It returns a slice of structured errors (empty ⇒ valid), each naming the field id
@@ -82,15 +84,16 @@ func checkFieldValue(f model.Field, v any) error {
 	return nil
 }
 
-// isSlice reports whether v is a slice value. A list field accepts any slice type
-// (the caller's collected multi-value), but not a string (which is text).
+// isSlice reports whether v is a slice value of any element type (the caller's
+// collected multi-value). The C3 contract is "list -> slice", not "list -> one of a
+// few enumerated slice types", so this uses a reflection kind check rather than a
+// closed type switch. A string is a sequence of bytes but is NOT a slice in Go's
+// reflect model, so it is correctly excluded (a string routes to the text field).
 func isSlice(v any) bool {
-	switch v.(type) {
-	case []any, []string, []int, []float64:
-		return true
-	default:
+	if v == nil {
 		return false
 	}
+	return reflect.TypeOf(v).Kind() == reflect.Slice
 }
 
 // isNumeric reports whether v is a number: a native Go numeric type, or a string that

@@ -43,6 +43,27 @@ func TestValidateInput_NumericString(t *testing.T) {
 	}
 }
 
+func TestValidateInput_ListAcceptsAnySliceType(t *testing.T) {
+	// The C3 contract is "list -> slice", not "list -> one of a few enumerated slice
+	// types". Any slice element type must satisfy a list field (issue
+	// 260612-1907[o]-validateinput-list-check-misses-slice-types).
+	sliceValues := []any{
+		[]bool{true, false},
+		[]float64{1.5, 2.5},
+		[]float32{1, 2},
+		[]int64{1, 2, 3},
+		[]any{"a", 1, true},
+		[][]string{{"a"}, {"b"}},
+		[]string{}, // empty slice is still a slice
+	}
+	for _, sv := range sliceValues {
+		input := Input{Values: map[string]any{"amount": 1.0, "decision": "approved", "tags": sv}}
+		if errs := ValidateInput(inputShape(), input); len(errs) != 0 {
+			t.Errorf("list field rejected valid slice %T: %v", sv, errs)
+		}
+	}
+}
+
 func TestValidateInput_TimeValueDate(t *testing.T) {
 	input := Input{Values: map[string]any{
 		"amount":   1.0,
