@@ -136,7 +136,7 @@ begins.
      - [ ] README states the stateless-library contract and names the four operations.
    - Dependencies: none.
 
-2. **Typed BPMN-subset model + shape types**
+2. **Typed BPMN-subset model + shape types** — [DONE]
    - Executor: `coder`
    - Files: `pkg/model/model.go` (BPMN-subset types), `pkg/model/shape.go` (shape types),
      `pkg/model/condition.go` (the sequence-flow condition type — its concrete shape is
