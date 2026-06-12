@@ -173,7 +173,7 @@ begins.
      - [ ] No engine logic in this package — data types + JSON tags only.
    - Dependencies: Step 1.
 
-3. **JSON parse edge: authored BPMN-subset JSON → typed `Model`**
+3. **JSON parse edge: authored BPMN-subset JSON → typed `Model`** — [DONE]
    - Executor: `coder`
    - Files: `pkg/model/parse.go`, `pkg/model/parse_test.go`
    - Changes: `ParseModel([]byte) (Model, error)` unmarshalling authored BPMN-subset JSON
