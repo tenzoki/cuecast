@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"time"
@@ -21,8 +22,8 @@ var dateLayouts = []string{"2006-01-02", time.RFC3339}
 //
 //   - required-field presence (a required field must have a non-nil value);
 //   - per-field type: text is a string, list is a slice (of any element type),
-//     number is numeric (or a numeric string), date parses (calendar date or
-//     RFC3339), select is a string;
+//     number is a finite numeric value (or a finite numeric string; NaN/Inf are
+//     rejected), date parses (calendar date or RFC3339), select is a string;
 //   - select value is one of the field's Options.
 //
 // It returns a slice of structured errors (empty ⇒ valid), each naming the field id
@@ -64,6 +65,9 @@ func checkFieldValue(f model.Field, v any) error {
 		}
 	case model.FieldNumber:
 		if !isNumeric(v) {
+			if isNonFinite(v) {
+				return fmt.Errorf("expected a finite number, got non-finite value %v", v)
+			}
 			return fmt.Errorf("expected number, got %T", v)
 		}
 	case model.FieldDate:
@@ -96,17 +100,46 @@ func isSlice(v any) bool {
 	return reflect.TypeOf(v).Kind() == reflect.Slice
 }
 
-// isNumeric reports whether v is a number: a native Go numeric type, or a string that
-// parses as a float (a form may collect numbers as strings).
+// isNumeric reports whether v is a finite number: a native Go numeric type, or a
+// string that parses as a float (a form may collect numbers as strings). Non-finite
+// values (NaN, +Inf, -Inf) are rejected, whether they arrive as a typed float or as a
+// "NaN"/"Inf" string that strconv.ParseFloat accepts — a business numeric field
+// (e.g. an expense amount) is never legitimately non-finite.
 func isNumeric(v any) bool {
 	switch n := v.(type) {
 	case int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64:
+		uint, uint8, uint16, uint32, uint64:
 		return true
+	case float32:
+		return isFinite(float64(n))
+	case float64:
+		return isFinite(n)
 	case string:
-		_, err := strconv.ParseFloat(n, 64)
-		return err == nil
+		f, err := strconv.ParseFloat(n, 64)
+		return err == nil && isFinite(f)
+	default:
+		return false
+	}
+}
+
+// isFinite reports whether f is a finite number (not NaN, not +/-Inf).
+func isFinite(f float64) bool {
+	return !math.IsNaN(f) && !math.IsInf(f, 0)
+}
+
+// isNonFinite reports whether v is a numeric value (typed float or numeric string)
+// that holds a non-finite quantity (NaN, +Inf, -Inf). It lets checkFieldValue
+// distinguish "not a number at all" from "a number, but non-finite" for a clearer
+// field-named error.
+func isNonFinite(v any) bool {
+	switch n := v.(type) {
+	case float32:
+		return !isFinite(float64(n))
+	case float64:
+		return !isFinite(n)
+	case string:
+		f, err := strconv.ParseFloat(n, 64)
+		return err == nil && !isFinite(f)
 	default:
 		return false
 	}

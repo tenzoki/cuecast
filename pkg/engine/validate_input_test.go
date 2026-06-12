@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,30 @@ func TestValidateInput_FailureClasses(t *testing.T) {
 			values:  map[string]any{"amount": "not-a-number", "decision": "approved"},
 			field:   "amount",
 			wantSub: "expected number",
+		},
+		{
+			name:    "number NaN (typed float)",
+			values:  map[string]any{"amount": math.NaN(), "decision": "approved"},
+			field:   "amount",
+			wantSub: "finite number",
+		},
+		{
+			name:    "number +Inf (typed float)",
+			values:  map[string]any{"amount": math.Inf(1), "decision": "approved"},
+			field:   "amount",
+			wantSub: "finite number",
+		},
+		{
+			name:    "number NaN string",
+			values:  map[string]any{"amount": "NaN", "decision": "approved"},
+			field:   "amount",
+			wantSub: "finite number",
+		},
+		{
+			name:    "number Inf string",
+			values:  map[string]any{"amount": "Inf", "decision": "approved"},
+			field:   "amount",
+			wantSub: "finite number",
 		},
 		{
 			name:    "text not a string",
