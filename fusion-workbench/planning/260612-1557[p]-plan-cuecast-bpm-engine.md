@@ -258,7 +258,7 @@ begins.
        a round-trip test confirms, without making JSON part of the engine API.
    - Dependencies: Step 2.
 
-6. **`Process` + form-description builder (C2, C6) and shape-binding form**
+6. **`Process` + form-description builder (C2, C6) and shape-binding form** — [DONE]
    - Executor: `coder`
    - Files: `pkg/engine/process.go`, `pkg/engine/form.go` (the `FormDescription` builder),
      `pkg/engine/process_test.go`
