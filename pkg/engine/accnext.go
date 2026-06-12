@@ -10,9 +10,12 @@ import "github.com/tenzoki/cuecast/pkg/model"
 //   - end event: the returned state marks the process complete (no active element).
 //   - exclusive gateway: each outgoing flow's Condition is evaluated against ctx in
 //     declared order; the first flow whose condition is true is taken. A flow with no
-//     condition is treated as unconditionally true. If none match and the gateway
-//     declares a Default flow, the default is taken. If none match and there is no
-//     default, AccNext returns a structured error naming the gateway.
+//     condition is treated as unconditionally true. An ordering condition (> >= < <=)
+//     whose context key is absent or non-numeric evaluates to false (a non-match), so
+//     the gateway continues to the next flow rather than aborting. If none match and
+//     the gateway declares a Default flow, the default is taken — the default is the
+//     none-match safety net (spec C4). If none match and there is no default, AccNext
+//     returns a structured error naming the gateway.
 //   - any other element (start event, task) with a single outgoing flow: the next
 //     state is that flow's target. Zero outgoing flows from a non-end element, or more
 //     than one from a non-gateway element, is a structured error (the model should

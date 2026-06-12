@@ -419,8 +419,10 @@ func (l *literal) kindName() string {
 	}
 }
 
-// ident is a Context-key reference. A missing key resolves to nil for comparison
-// (a comparison against a missing key is well-defined: != matches, == does not).
+// ident is a Context-key reference. A missing key resolves to nil for comparison.
+// Equality against a missing key is well-defined (!= matches, == does not match);
+// ordering (> >= < <=) against a missing or non-numeric key is a non-match (false),
+// so a gateway falls through to its default rather than erroring (see compare).
 type ident struct{ key string }
 
 func (id *ident) resolve(ctx Context) (any, error) {
@@ -501,8 +503,14 @@ func (ce *cmpExpr) evalBool(ctx Context) (bool, error) {
 
 // compare evaluates a comparison between two resolved values. Equality (== / !=)
 // works across numbers, strings, bools, and nil (a missing context key). Ordering
-// (> >= < <=) requires both sides to be numeric. Type mismatches on ordering are a
-// runtime error naming the operator.
+// (> >= < <=) requires both sides to be numeric; when either side is absent (a
+// missing context key) or non-numeric, the ordering comparison is a canonical
+// non-match — it evaluates to false rather than erroring. This is what lets a
+// gateway whose ordering condition references a not-yet-set key fall through to its
+// declared default flow (spec C4: a missing key is the canonical "none match" case)
+// instead of aborting the whole gateway. Genuinely malformed condition *expressions*
+// are still caught earlier, at Validate time (compileCondition); this rule governs
+// only runtime evaluation against a context that lacks or type-mismatches a key.
 func compare(op string, l, r any) (bool, error) {
 	switch op {
 	case "==":
@@ -514,7 +522,10 @@ func compare(op string, l, r any) (bool, error) {
 	lf, lok := toFloat(l)
 	rf, rok := toFloat(r)
 	if !lok || !rok {
-		return false, fmt.Errorf("operator %q requires numeric operands, got %s and %s", op, typeName(l), typeName(r))
+		// Ordering against an absent or non-numeric operand does not match. The flow
+		// is skipped; gateway evaluation continues to the next flow and, ultimately,
+		// to the declared default.
+		return false, nil
 	}
 	switch op {
 	case ">":

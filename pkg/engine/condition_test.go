@@ -90,12 +90,28 @@ func TestCompileCondition_ParseErrors(t *testing.T) {
 	}
 }
 
-func TestEvalCondition_RuntimeTypeError(t *testing.T) {
+func TestEvalCondition_OrderingNonNumericIsNonMatch(t *testing.T) {
 	ctx := Context{Values: map[string]any{"region": "EU"}}
-	// Ordering on a string operand is a runtime error.
-	_, err := evalCondition(model.Condition{Expr: `region > 5`}, ctx)
-	if err == nil || !strings.Contains(err.Error(), "numeric operands") {
-		t.Fatalf("expected numeric-operand error, got %v", err)
+	// Ordering on a non-numeric operand is a canonical non-match (false), not an
+	// error: it lets a gateway fall through to its default rather than aborting
+	// (spec C4; issue 260612-1907[o]-gateway-default-bypassed-on-missing-key-eval-error).
+	match, err := evalCondition(model.Condition{Expr: `region > 5`}, ctx)
+	if err != nil {
+		t.Fatalf("ordering on a string operand errored: %v, want non-match", err)
+	}
+	if match {
+		t.Errorf("ordering on a string operand = true, want false (non-match)")
+	}
+}
+
+func TestEvalCondition_OrderingAbsentKeyIsNonMatch(t *testing.T) {
+	// Ordering against an absent context key is a non-match (false), not an error.
+	match, err := evalCondition(model.Condition{Expr: `amount >= 1000`}, Context{})
+	if err != nil {
+		t.Fatalf("ordering on an absent key errored: %v, want non-match", err)
+	}
+	if match {
+		t.Errorf("ordering on an absent key = true, want false (non-match)")
 	}
 }
 

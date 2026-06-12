@@ -119,6 +119,25 @@ func TestE2E_ManagerReviewBranch(t *testing.T) {
 	}
 }
 
+// TestE2E_GatewayDefaultOnAbsentAmount confirms the shipped example process routes to
+// the gateway's declared default flow (f_review -> manager_review) when the run reaches
+// the gateway with "amount" absent from context — instead of erroring. Regression for
+// issue 260612-1907[o]-gateway-default-bypassed-on-missing-key-eval-error.
+func TestE2E_GatewayDefaultOnAbsentAmount(t *testing.T) {
+	m, _ := loadFixtures(t)
+
+	ctx := engine.Context{} // amount never set
+	state := engine.State{ActiveElementID: "gw_amount"}
+
+	next, err := engine.AccNext(m, state, ctx)
+	if err != nil {
+		t.Fatalf("AccNext at gateway with absent amount errored: %v, want default routing", err)
+	}
+	if next.ActiveElementID != "manager_review" {
+		t.Errorf("absent amount routed to %q, want manager_review (default flow f_review target)", next.ActiveElementID)
+	}
+}
+
 // TestE2E_InvalidSubmissions confirms the input validator rejects an out-of-options
 // select and a missing required field, each naming the field.
 func TestE2E_InvalidSubmissions(t *testing.T) {

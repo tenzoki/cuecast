@@ -86,6 +86,36 @@ func TestAccNext_GatewayDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestAccNext_GatewayDefaultOnAbsentKey(t *testing.T) {
+	// Regression: an ordering condition (< / >=) referencing a context key that is
+	// absent must evaluate to a non-match (false), so the gateway falls through to its
+	// declared default — NOT abort with an evaluation error (issue
+	// 260612-1907[o]-gateway-default-bypassed-on-missing-key-eval-error).
+	m := accNextModel() // gw default = f_review (amount >= 1000 -> review)
+	ctx := Context{}    // amount absent
+	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	if err != nil {
+		t.Fatalf("AccNext(gw, amount absent) error: %v, want default routing", err)
+	}
+	if next.ActiveElementID != "review" {
+		t.Errorf("amount absent routed to %q, want review (the default flow target)", next.ActiveElementID)
+	}
+}
+
+func TestAccNext_GatewayDefaultOnNonNumericKey(t *testing.T) {
+	// An ordering condition against a non-numeric context value is likewise a
+	// non-match, routing to the default rather than erroring.
+	m := accNextModel()
+	ctx := Context{Values: map[string]any{"amount": "not-a-number"}}
+	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	if err != nil {
+		t.Fatalf("AccNext(gw, amount non-numeric) error: %v, want default routing", err)
+	}
+	if next.ActiveElementID != "review" {
+		t.Errorf("non-numeric amount routed to %q, want review (the default flow target)", next.ActiveElementID)
+	}
+}
+
 func TestAccNext_GatewayUnsatisfiable(t *testing.T) {
 	m := model.Model{
 		Elements: []model.Element{
