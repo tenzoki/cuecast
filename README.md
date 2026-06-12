@@ -35,6 +35,20 @@ field-binding key scheme; it is pure and persists nothing.
 
 `pkg/engine` depends on `pkg/model`; nothing depends on `pkg/engine`. One-way, no cycle.
 
+## Try it
+
+```sh
+go test ./...                          # the full suite (table-driven + an e2e walk)
+
+go run ./cmd/cuecast-demo              # walk the bundled expense-approval process
+go run ./cmd/cuecast-demo -amount 500     # auto-approve branch (no user-input step)
+go run ./cmd/cuecast-demo -decision maybe # invalid input is rejected
+```
+
+`cmd/cuecast-demo` loads `testdata/approval-process.json` + `testdata/expense-shape.json`
+and drives the caller loop (`Process` → `ValidateInput` + `MergeInput` → `AccNext`) to
+completion — a runnable smoke test and a worked example of the engine's contract.
+
 ## Status
 
 v1 library. Out of scope: persistence, the run loop, an HTTP server, the web-UI
