@@ -195,7 +195,7 @@ begins.
        errors.
    - Dependencies: Step 2.
 
-4. **`Validate` — model well-formedness (C1)**
+4. **`Validate` — model well-formedness (C1)** — [DONE]
    - Executor: `coder`
    - Files: `pkg/engine/validate.go`, `pkg/engine/errors.go` (the `ValidationError` and
      engine-error types), `pkg/engine/validate_test.go`
