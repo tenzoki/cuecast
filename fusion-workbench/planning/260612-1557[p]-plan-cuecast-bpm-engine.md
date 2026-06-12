@@ -227,7 +227,7 @@ begins.
      - [ ] Table-driven tests with one valid model and one fixture per failure class.
    - Dependencies: Step 2, Step 3 (fixtures parse via the edge).
 
-5. **Engine contracts: `State`, `Context`, `Input`, `Result` (C5)**
+5. **Engine contracts: `State`, `Context`, `Input`, `Result` (C5)** — [DONE]
    - Executor: `coder`
    - Files: `pkg/engine/contracts.go`, `pkg/engine/contracts_test.go`
    - Changes: define the typed structs that flow between caller and engine.
