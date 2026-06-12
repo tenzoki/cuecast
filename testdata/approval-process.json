@@ -1,0 +1,18 @@
+{
+  "id": "approval-process",
+  "name": "Expense Approval",
+  "elements": [
+    { "id": "start", "kind": "start_event", "name": "Request submitted" },
+    { "id": "gw_amount", "kind": "exclusive_gateway", "name": "Amount?", "default": "f_review" },
+    { "id": "auto_approve", "kind": "task", "name": "Auto-approve", "automatic": true },
+    { "id": "manager_review", "kind": "task", "name": "Manager review", "shapeRef": "expense-shape" },
+    { "id": "end", "kind": "end_event", "name": "Decision recorded" }
+  ],
+  "flows": [
+    { "id": "f_start", "source": "start", "target": "gw_amount" },
+    { "id": "f_auto", "source": "gw_amount", "target": "auto_approve", "condition": "amount < 1000" },
+    { "id": "f_review", "source": "gw_amount", "target": "manager_review", "condition": "amount >= 1000" },
+    { "id": "f_auto_end", "source": "auto_approve", "target": "end" },
+    { "id": "f_review_end", "source": "manager_review", "target": "end" }
+  ]
+}

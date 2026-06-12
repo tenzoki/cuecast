@@ -1,0 +1,12 @@
+{
+  "id": "expense-shape",
+  "kind": "canvas",
+  "groups": [
+    { "id": "review", "label": "Manager Review" }
+  ],
+  "fields": [
+    { "id": "amount", "label": "Amount (EUR)", "type": "number", "required": true, "group": "review", "binding": "amount" },
+    { "id": "decision", "label": "Decision", "type": "select", "required": true, "group": "review", "options": ["approved", "rejected"] },
+    { "id": "note", "label": "Reviewer note", "type": "text", "required": false, "group": "review" }
+  ]
+}

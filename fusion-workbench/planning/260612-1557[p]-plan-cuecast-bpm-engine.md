@@ -1,7 +1,7 @@
 # Implementation Plan: cuecast — stateless BPM-execution engine (Go library)
 
 **Date:** 2026-06-12
-**Status:** Draft — Ready for Review
+**Status:** Complete
 **Spec:** `fusion-workbench/planning/260612-1525[o]-spec-cuecast-bpm-engine.md`
 
 ## Directive
@@ -364,7 +364,7 @@ begins.
        default-branch, unsatisfiable-error, end-event completion.
    - Dependencies: Step 2, Step 4, Step 5; **the plan-review resolution of `260612-1557[o]`**.
 
-9. **End-to-end fixture walk + example process & shape**
+9. **End-to-end fixture walk + example process & shape** — [DONE]
    - Executor: `coder`
    - Files: `pkg/engine/engine_e2e_test.go`, `testdata/approval-process.json` (the example BPM
      model), `testdata/expense-shape.json` (the example shape), `testdata/README.md` (describes
