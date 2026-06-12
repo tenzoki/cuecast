@@ -107,6 +107,15 @@ func TestValidate_FailureClasses(t *testing.T) {
 			wantSub:   "default flow",
 			wantLocID: "gw",
 		},
+		{
+			// f_auto is a gateway-outgoing flow and is NOT the default (f_review is).
+			// Dropping its condition makes it an unconditional non-default flow, which
+			// would fire unconditionally and shadow f_review at AccNext.
+			name:      "unconditional non-default gateway flow",
+			mutate:    func(m *model.Model) { m.Flows[1].Condition = nil },
+			wantSub:   "non-default gateway flow has no condition",
+			wantLocID: "f_auto",
+		},
 	}
 
 	for _, tc := range cases {

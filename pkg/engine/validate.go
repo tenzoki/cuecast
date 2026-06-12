@@ -17,8 +17,9 @@ import (
 //   - no dangling sequence-flow source/target references;
 //   - every element reachable from the start event over sequence flows;
 //   - every end event reachable; at least one end event exists;
-//   - an exclusive gateway has at least one outgoing flow, and its declared default
-//     (if any) is one of its outgoing flows;
+//   - an exclusive gateway has at least one outgoing flow, its declared default
+//     (if any) is one of its outgoing flows, and no non-default outgoing flow is
+//     unconditional (only the default flow may carry no condition);
 //   - a user-input task (a non-automatic task) references a shape via ShapeRef;
 //     the engine is catalog-free, so this validates the reference form, not catalog
 //     presence (the caller resolves ShapeRef to a Shape before Process — see C6);
@@ -146,6 +147,18 @@ func checkGateways(m model.Model, byID map[string]model.Element) []ValidationErr
 				ElementID: e.ID,
 				Reason:    fmt.Sprintf("default flow %q is not an outgoing flow of this gateway", e.Default),
 			})
+		}
+		// An exclusive gateway may have exactly one unconditional outgoing flow, and
+		// only the declared default. Any other condition-less flow fires
+		// unconditionally in declared order at AccNext, silently shadowing every flow
+		// after it (HYG-NO-SILENT-FAIL). Flag it, named against the flow id.
+		for _, f := range outs {
+			if f.Condition == nil && f.ID != e.Default {
+				errs = append(errs, ValidationError{
+					FlowID: f.ID,
+					Reason: "non-default gateway flow has no condition (only the default flow may be unconditional)",
+				})
+			}
 		}
 	}
 	return errs
