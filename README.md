@@ -11,6 +11,21 @@ Every engine input and output is a Go struct — there is no HTTP surface and no
 the call signatures. A caller talking to a browser serializes the form-description
 struct to JSON at its own boundary.
 
+## Install
+
+Requires Go 1.22+.
+
+```sh
+go get github.com/tenzoki/cuecast
+```
+
+```go
+import (
+	"github.com/tenzoki/cuecast/pkg/engine"
+	"github.com/tenzoki/cuecast/pkg/model"
+)
+```
+
 ## The four operations
 
 - **`Validate(model)`** — checks a process model is well-formed and executable, returning
@@ -26,6 +41,54 @@ struct to JSON at its own boundary.
 
 A `MergeInput(ctx, input, shape)` helper merges validated input into context under the
 field-binding key scheme; it is pure and persists nothing.
+
+## Quickstart
+
+The caller owns the state and context and drives the loop. Parse the model and shape,
+`Validate` the model, then loop `Process` → (`ValidateInput` + `MergeInput` when a step
+needs input) → `AccNext` until the state is complete:
+
+```go
+m, err := model.ParseModel(modelJSON)
+if err != nil {
+	return err
+}
+shape, err := model.ParseShape(shapeJSON)
+if err != nil {
+	return err
+}
+if errs := engine.Validate(m); len(errs) > 0 {
+	return fmt.Errorf("model is invalid: %v", errs)
+}
+
+// Caller owns state + context. Start at the start event; seed any initial data.
+state := engine.State{ActiveElementID: "start"}
+ctx := engine.Context{Values: map[string]any{"amount": 5000}}
+
+for !state.Complete {
+	res, err := engine.Process(m, state, ctx, shape)
+	if err != nil {
+		return err
+	}
+
+	if res.RequiresInput {
+		// Collect values for res.Form.Fields from the user, keyed by field id.
+		input := engine.Input{Values: map[string]any{"decision": "approved"}}
+		if errs := engine.ValidateInput(shape, input); len(errs) > 0 {
+			return fmt.Errorf("input rejected: %v", errs)
+		}
+		ctx = engine.MergeInput(ctx, input, shape)
+	}
+
+	state, err = engine.AccNext(m, state, ctx)
+	if err != nil {
+		return err
+	}
+}
+```
+
+For a complete, runnable version of this loop, see `cmd/cuecast-demo` (described under
+[Try it](#try-it)).
 
 ## Packages
 
@@ -54,3 +117,8 @@ completion — a runnable smoke test and a worked example of the engine's contra
 v1 library. Out of scope: persistence, the run loop, an HTTP server, the web-UI
 renderer, row-oriented tables, parallel gateways/tokens, timer/message/signal events,
 sub-processes, auth.
+
+## License
+
+Licensed under the European Union Public Licence v1.2 (EUPL-1.2). See the
+[`LICENSE`](LICENSE) file for the full text.
