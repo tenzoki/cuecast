@@ -61,50 +61,57 @@ func run(dir string, amount int, decision string) error {
 
 	// Caller owns state + context. Start at the start event; seed the amount.
 	// State is now a token set; this single-token example holds exactly one token
-	// at every step, so the inner token loop runs once per step.
+	// at every step.
 	state := engine.StartState("start")
 	ctx := engine.Context{Values: map[string]any{"amount": amount}}
 
+	// Multi-lane-safe driver loop: each iteration re-reads the current token set, picks
+	// exactly ONE active token, advances it with AccNext, and re-derives the next state.
+	// We never range over state.ActiveTokens while reassigning state inside the loop —
+	// AccNext rewrites the whole set (a fork replaces one token with several, a join fire
+	// removes peers), so a range snapshot taken once would advance stale tokens. Picking
+	// one token per step against the freshly-read state is the pattern a genuine
+	// multi-token host should copy; termination keys off state.Complete, which also
+	// covers the parked-join no-forward-progress case.
 	for step := 1; !state.Complete; step++ {
-		// One token in this example; iterate the set the way a multi-lane caller would.
-		for _, tok := range state.ActiveTokens {
-			res, err := engine.Process(m, state, tok, ctx, shape)
-			if err != nil {
-				return fmt.Errorf("process %q: %w", tok.ElementID, err)
+		tok := state.ActiveTokens[0]
+
+		res, err := engine.Process(m, state, tok, ctx, shape)
+		if err != nil {
+			return fmt.Errorf("process %q: %w", tok.ElementID, err)
+		}
+
+		if res.RequiresInput {
+			fmt.Printf("step %d: %q needs user input\n", step, res.ActiveElementID)
+			for _, f := range res.Form.Fields {
+				fmt.Printf("    field %-9s type=%-6s required=%-5t prefilled=%-6v options=%v\n",
+					f.ID, f.Type, f.Required, f.Value, f.Options)
 			}
 
-			if res.RequiresInput {
-				fmt.Printf("step %d: %q needs user input\n", step, res.ActiveElementID)
-				for _, f := range res.Form.Fields {
-					fmt.Printf("    field %-9s type=%-6s required=%-5t prefilled=%-6v options=%v\n",
-						f.ID, f.Type, f.Required, f.Value, f.Options)
+			// A real caller submits every form field. Carry the pre-filled
+			// values back in, then overlay what the user actually entered.
+			input := engine.Input{Values: map[string]any{}}
+			for _, f := range res.Form.Fields {
+				if f.Value != nil {
+					input.Values[f.ID] = f.Value
 				}
-
-				// A real caller submits every form field. Carry the pre-filled
-				// values back in, then overlay what the user actually entered.
-				input := engine.Input{Values: map[string]any{}}
-				for _, f := range res.Form.Fields {
-					if f.Value != nil {
-						input.Values[f.ID] = f.Value
-					}
-				}
-				input.Values["decision"] = decision
-				input.Values["note"] = "submitted by cuecast-demo"
-
-				if errs := engine.ValidateInput(shape, input); len(errs) > 0 {
-					fmt.Printf("    -> input REJECTED: %v\n", errs)
-					return nil
-				}
-				ctx = engine.MergeInput(ctx, input, shape)
-				fmt.Printf("    -> submitted decision=%q (valid)\n", decision)
-			} else {
-				fmt.Printf("step %d: %q (automatic, no form)\n", step, res.ActiveElementID)
 			}
+			input.Values["decision"] = decision
+			input.Values["note"] = "submitted by cuecast-demo"
 
-			state, err = engine.AccNext(m, state, tok, ctx)
-			if err != nil {
-				return fmt.Errorf("accNext %q: %w", res.ActiveElementID, err)
+			if errs := engine.ValidateInput(shape, input); len(errs) > 0 {
+				fmt.Printf("    -> input REJECTED: %v\n", errs)
+				return nil
 			}
+			ctx = engine.MergeInput(ctx, input, shape)
+			fmt.Printf("    -> submitted decision=%q (valid)\n", decision)
+		} else {
+			fmt.Printf("step %d: %q (automatic, no form)\n", step, res.ActiveElementID)
+		}
+
+		state, err = engine.AccNext(m, state, tok, ctx)
+		if err != nil {
+			return fmt.Errorf("accNext %q: %w", res.ActiveElementID, err)
 		}
 	}
 

@@ -27,10 +27,14 @@ import (
 //     none-match safety net (spec C4). If none match and there is no default, AccNext
 //     returns a structured error naming the gateway. tok is replaced by one token on
 //     the selected flow's target.
-//   - parallel gateway acting as a fork (more than one outgoing flow): tok is removed
-//     and one fresh token is added per outgoing flow (each ElementID = flow.Target,
-//     ArrivedVia = ""). A parallel gateway that is not a fork (one or zero outgoing
-//     flows) is the join role, advanced by the parked-token path below.
+//   - parallel gateway acting as a fork (more than one outgoing flow): tok is removed and
+//     each outgoing branch arrives through the shared arrival path (arriveAll). A branch
+//     whose target is an ordinary element adds a normal token (ArrivedVia = ""); a branch
+//     whose target is a parallel-join is parked-and-tagged exactly like the single-
+//     successor case below — so fork → join direct (an empty parallel block) works and is
+//     never left as an untagged token on a join. A parallel gateway that is not a fork
+//     (one or zero outgoing flows) is the join role, advanced by the parked-token path
+//     below.
 //   - any other element (start event, task) with a single outgoing flow whose target is
 //     a parallel-join gateway: tok is parked on the join (see the join paragraph below)
 //     rather than advanced onto it.
@@ -39,6 +43,10 @@ import (
 //     from a non-end element, or more than one from a non-gateway element, is a
 //     structured error (the model should have been caught by Validate, but AccNext fails
 //     visibly rather than guessing).
+//
+// Both the fork role and the single-successor role route arrivals through one shared
+// helper (arriveAll), so there is a single integral "arrive at element" algorithm rather
+// than two asymmetric ones (HYG-SOT).
 //
 // Parallel-join arrival is two-phase, both phases inside this one call:
 //
@@ -97,32 +105,29 @@ func AccNext(m model.Model, state State, tok Token, ctx Context) (State, error) 
 	}
 
 	// Parallel gateway in the fork role (more than one outgoing flow): the arriving
-	// token splits into one fresh token per outgoing branch. A parallel gateway with
-	// one (or zero) outgoing flow is the join role, reached via the parked-token path
-	// above once a branch arrives on it.
+	// token splits into one token per outgoing branch. Each branch arrives through the
+	// same shared arrival path as the single-successor case below, so a branch that
+	// targets a parallel-join directly is parked-and-tagged exactly like any other
+	// arrival — never appended untagged (HYG-SOT). A parallel gateway with one (or zero)
+	// outgoing flow is the join role, reached via the parked-token path above once a
+	// branch arrives on it.
 	if el.Kind == model.KindParallelGateway && len(outs) > 1 {
-		forked := removeToken(state.ActiveTokens, tok)
-		for _, f := range outs {
-			forked = append(forked, Token{ElementID: f.Target})
+		next, err := arriveAll(m, incoming, removeToken(state.ActiveTokens, tok), outs)
+		if err != nil {
+			return State{}, err
 		}
-		return finalize(forked), nil
+		return next, nil
 	}
 
 	// Non-gateway, non-end element: expect exactly one successor.
 	switch len(outs) {
 	case 1:
-		succ := outs[0]
-		// Arrival at a parallel join: the single successor is a parallel_gateway with
-		// more than one incoming flow. Park tok on the join tagged with the flow it
-		// traversed, then run the fire phase.
-		if joinEl, isJoin := parallelJoin(m, incoming, succ.Target); isJoin {
-			parked := append(
-				removeToken(state.ActiveTokens, tok),
-				Token{ElementID: joinEl.ID, ArrivedVia: succ.ID},
-			)
-			return fireJoinIfSatisfied(m, parked, joinEl, incoming[joinEl.ID]), nil
+		// The single successor arrives through the same shared path as each fork branch.
+		next, err := arriveAll(m, incoming, removeToken(state.ActiveTokens, tok), outs[:1])
+		if err != nil {
+			return State{}, err
 		}
-		return finalize(replaceToken(state.ActiveTokens, tok, Token{ElementID: succ.Target})), nil
+		return next, nil
 	case 0:
 		return State{}, newError("AccNext", el.ID,
 			"element has no outgoing sequence flow and is not an end event")
@@ -130,6 +135,48 @@ func AccNext(m model.Model, state State, tok Token, ctx Context) (State, error) 
 		return State{}, newError("AccNext", el.ID,
 			"non-gateway element has more than one outgoing sequence flow")
 	}
+}
+
+// arriveAll applies one or more flow traversals to the token set through the single shared
+// arrival path, then runs the fire phase for every parallel-join any branch landed on. It
+// is the one place a token "arrives at" a target — both the fork role (N outgoing flows)
+// and the single-successor role (1 outgoing flow) route through it, so a branch that
+// targets a join directly is parked-and-tagged identically to any other arrival
+// (HYG-SOT). base is the token set with the arriving token already removed.
+//
+// For each traversed flow:
+//   - if the flow's target is a parallel-join (incoming-count > 1), a parked token
+//     {ElementID: joinID, ArrivedVia: flow.ID} is added — never an untagged token on a
+//     join; the join is remembered so its fire phase runs after every arrival is parked;
+//   - otherwise a normal token {ElementID: flow.Target} is added.
+//
+// When several branches of one fork target the same join in this one call, each is parked
+// with its own ArrivedVia tag before any fire-check; the fire phase then sees the full
+// parked set and fires the join once it is covered. Fail-loud: a flow with no id that
+// lands on a join cannot be tagged, so it is a structured error rather than a silent
+// untagged park.
+func arriveAll(m model.Model, incoming map[string][]model.SequenceFlow, base []Token, flows []model.SequenceFlow) (State, error) {
+	tokens := base
+	joins := make(map[string]model.Element)
+	for _, f := range flows {
+		if joinEl, isJoin := parallelJoin(m, incoming, f.Target); isJoin {
+			if f.ID == "" {
+				return State{}, newError("AccNext", joinEl.ID,
+					"a token arrived at a parallel join via a flow with no id; arrival cannot be tagged")
+			}
+			tokens = append(tokens, Token{ElementID: joinEl.ID, ArrivedVia: f.ID})
+			joins[joinEl.ID] = joinEl
+			continue
+		}
+		tokens = append(tokens, Token{ElementID: f.Target})
+	}
+
+	// Fire every join a branch parked on. fireJoinIfSatisfied returns the next token set;
+	// fold each join's result forward so multiple distinct joins in one call all settle.
+	for _, joinEl := range joins {
+		tokens = fireJoinIfSatisfied(m, tokens, joinEl, incoming[joinEl.ID]).ActiveTokens
+	}
+	return finalize(tokens), nil
 }
 
 // parallelJoin reports whether the element with id targetID is a parallel_gateway in the

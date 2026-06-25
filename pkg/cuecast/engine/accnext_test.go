@@ -323,6 +323,121 @@ func TestAccNext_PendingJoinTokenIsIdempotent(t *testing.T) {
 	}
 }
 
+// forkDirectIntoJoinModel is the empty-parallel-block shape: a fork whose two outgoing
+// flows go straight to the join with no element between (fork → join direct on both
+// branches):
+//
+//	start -> fork -> {join, join} -> end
+//
+// The join has two incoming flows (f_fork_join_a, f_fork_join_b) and one outgoing flow
+// (f_join_end). This is a legal topology and must run to completion.
+func forkDirectIntoJoinModel() model.Model {
+	return model.Model{
+		ID: "fork-direct-join",
+		Elements: []model.Element{
+			{ID: "start", Kind: model.KindStartEvent},
+			{ID: "fork", Kind: model.KindParallelGateway},
+			{ID: "join", Kind: model.KindParallelGateway},
+			{ID: "end", Kind: model.KindEndEvent},
+		},
+		Flows: []model.SequenceFlow{
+			{ID: "f_start", Source: "start", Target: "fork"},
+			{ID: "f_fork_join_a", Source: "fork", Target: "join"},
+			{ID: "f_fork_join_b", Source: "fork", Target: "join"},
+			{ID: "f_join_end", Source: "join", Target: "end"},
+		},
+	}
+}
+
+func TestAccNext_ForkDirectIntoJoinParksBothBranches(t *testing.T) {
+	// A fork whose two outgoing flows both target the join directly must park BOTH
+	// branches with their respective ArrivedVia tags within the one fork AccNext call —
+	// never an untagged token on the join. With both branches parked the join is covered,
+	// so it fires immediately and emits one token on its outgoing target.
+	m := forkDirectIntoJoinModel()
+	next, err := AccNext(m, StartState("fork"), Token{ElementID: "fork"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(fork) error: %v", err)
+	}
+	// Both branches cover the join in this single call, so the join fires and the only
+	// surviving token sits on the outgoing target (end). No untagged token on the join.
+	want := []Token{{ElementID: "end"}}
+	if !reflect.DeepEqual(next.ActiveTokens, want) {
+		t.Errorf("fork→join-direct produced %+v, want %+v (join fired, one token on end)", next.ActiveTokens, want)
+	}
+	for _, tok := range next.ActiveTokens {
+		if tok.ElementID == "join" && tok.ArrivedVia == "" {
+			t.Errorf("untagged token left sitting on the join: %+v", tok)
+		}
+	}
+}
+
+func TestAccNext_ForkDirectIntoJoinFireUsesBothTags(t *testing.T) {
+	// Both fork branches target the join directly, so the join can only fire if BOTH
+	// f_fork_join_a and f_fork_join_b are recorded as ArrivedVia tags within the one fork
+	// call (set-cover requires the full incoming set). If either branch were appended
+	// untagged (ArrivedVia == ""), the cover would be {"", one-tag} != {a, b} and the
+	// join would never fire. The fork firing to `end` is therefore proof both tags
+	// participated. Dropping one branch from the model must leave the join pending,
+	// confirming the fire is genuinely gated on the full tag set rather than a count.
+	full := forkDirectIntoJoinModel()
+	fired, err := AccNext(full, StartState("fork"), Token{ElementID: "fork"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(fork) error: %v", err)
+	}
+	if !reflect.DeepEqual(fired.ActiveTokens, []Token{{ElementID: "end"}}) {
+		t.Fatalf("fork→join-direct did not fire on both tags: %+v", fired.ActiveTokens)
+	}
+
+	// Negative control: a fork with only one branch into the join leaves the join parked
+	// and tagged (pending), never untagged and never fired prematurely.
+	oneBranch := full
+	oneBranch.Flows = []model.SequenceFlow{
+		{ID: "f_start", Source: "start", Target: "fork"},
+		{ID: "f_fork_join_a", Source: "fork", Target: "join"},
+		{ID: "f_fork_join_b", Source: "task", Target: "join"},
+		{ID: "f_join_end", Source: "join", Target: "end"},
+	}
+	oneBranch.Elements = append(oneBranch.Elements, model.Element{ID: "task", Kind: model.KindTask, Automatic: true})
+	// fork now has a single outgoing flow into the join, so it is no longer a fork; drive
+	// the start→fork edge and then the fork→join arrival to confirm parking-not-firing.
+	parked, err := AccNext(oneBranch, State{ActiveTokens: []Token{{ElementID: "fork"}}}, Token{ElementID: "fork"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(single-branch fork→join) error: %v", err)
+	}
+	want := []Token{{ElementID: "join", ArrivedVia: "f_fork_join_a"}}
+	if !reflect.DeepEqual(parked.ActiveTokens, want) {
+		t.Errorf("single branch into join = %+v, want %+v (parked-and-tagged, pending — not fired, not untagged)", parked.ActiveTokens, want)
+	}
+}
+
+func TestAccNext_ForkDirectIntoJoinRunsToCompletion(t *testing.T) {
+	// Drive the empty-parallel-block model start→fork→{join,join}→end to completion via a
+	// pick-one-per-step host loop, asserting the run completes and never deadlocks. This
+	// is the regression for the silent non-completion the untagged fork→join arrival
+	// caused (the join's cover could never be satisfied by an untagged token).
+	m := forkDirectIntoJoinModel()
+	state := StartState("start")
+
+	for step := 0; !state.Complete; step++ {
+		if step > 100 {
+			t.Fatalf("run did not complete in 100 steps; likely deadlock: %+v", state.ActiveTokens)
+		}
+		// Pick one active token per step, advance it, then re-derive from the new state
+		// (multi-lane-safe: never range a slice that AccNext mutates).
+		tok := state.ActiveTokens[0]
+		next, err := AccNext(m, state, tok, Context{})
+		if err != nil {
+			t.Fatalf("AccNext(%+v) error: %v", tok, err)
+		}
+		state = next
+	}
+
+	if !state.Complete {
+		t.Fatalf("run not Complete, tokens=%+v", state.ActiveTokens)
+	}
+}
+
 func TestProcess_ParkedJoinTokenRequiresNoInput(t *testing.T) {
 	// Process on a token parked on the join resolves to the join (a gateway) and returns
 	// a no-input Result.
