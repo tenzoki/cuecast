@@ -43,10 +43,11 @@ func expenseShape() model.Shape {
 
 func TestProcess_UserInputTask_FormBoundFromContext(t *testing.T) {
 	m := processModel()
-	state := State{ActiveElementID: "review"}
+	state := StartState("review")
+	tok, _ := state.single()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}} // pre-fills the amount field
 
-	res, err := Process(m, state, ctx, expenseShape())
+	res, err := Process(m, state, tok, ctx, expenseShape())
 	if err != nil {
 		t.Fatalf("Process returned error: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestProcess_NoInputElements(t *testing.T) {
 	cases := []string{"auto", "gw", "start", "end"}
 	for _, id := range cases {
 		t.Run(id, func(t *testing.T) {
-			res, err := Process(m, State{ActiveElementID: id}, Context{}, model.Shape{})
+			res, err := Process(m, StartState(id), Token{ElementID: id}, Context{}, model.Shape{})
 			if err != nil {
 				t.Fatalf("Process(%s) error: %v", id, err)
 			}
@@ -98,7 +99,7 @@ func TestProcess_NoInputElements(t *testing.T) {
 
 func TestProcess_InvalidState(t *testing.T) {
 	m := processModel()
-	_, err := Process(m, State{ActiveElementID: "ghost"}, Context{}, model.Shape{})
+	_, err := Process(m, StartState("ghost"), Token{ElementID: "ghost"}, Context{}, model.Shape{})
 	if err == nil {
 		t.Fatal("Process with invalid state returned no error")
 	}
@@ -115,7 +116,7 @@ func TestProcess_ShapeMismatch(t *testing.T) {
 	m := processModel()
 	wrong := expenseShape()
 	wrong.ID = "other-shape"
-	_, err := Process(m, State{ActiveElementID: "review"}, Context{}, wrong)
+	_, err := Process(m, StartState("review"), Token{ElementID: "review"}, Context{}, wrong)
 	if err == nil {
 		t.Fatal("Process with mismatched shape returned no error")
 	}
@@ -123,11 +124,12 @@ func TestProcess_ShapeMismatch(t *testing.T) {
 
 func TestProcess_Stateless(t *testing.T) {
 	m := processModel()
-	state := State{ActiveElementID: "review"}
+	state := StartState("review")
+	tok, _ := state.single()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}
 
-	first, err1 := Process(m, state, ctx, expenseShape())
-	second, err2 := Process(m, state, ctx, expenseShape())
+	first, err1 := Process(m, state, tok, ctx, expenseShape())
+	second, err2 := Process(m, state, tok, ctx, expenseShape())
 	if err1 != nil || err2 != nil {
 		t.Fatalf("errors: %v / %v", err1, err2)
 	}
@@ -146,12 +148,13 @@ func TestProcess_CanvasAndTableIdenticalStructure(t *testing.T) {
 	table := expenseShape()
 	table.Kind = model.KindTable
 
-	state := State{ActiveElementID: "review"}
+	state := StartState("review")
+	tok, _ := state.single()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}
 
-	canvasRes, _ := Process(m, state, ctx, canvas)
+	canvasRes, _ := Process(m, state, tok, ctx, canvas)
 	// The table shape must declare the task's ShapeRef too; reuse the same id.
-	tableRes, err := Process(m, state, ctx, table)
+	tableRes, err := Process(m, state, tok, ctx, table)
 	if err != nil {
 		t.Fatalf("table Process error: %v", err)
 	}

@@ -69,7 +69,7 @@ func TestMergeInput_Pure_NoMutation(t *testing.T) {
 func TestContracts_JSONRoundTrip(t *testing.T) {
 	// All four contracts serialise cleanly — a caller may do so at its browser
 	// boundary. JSON is not part of the engine API; this only confirms cleanliness.
-	state := State{ActiveElementID: "gw", Complete: false}
+	state := StartState("gw")
 	ctx := Context{Values: map[string]any{"amount": 1000.0, "region": "EU"}}
 	input := Input{Values: map[string]any{"decision": "approved"}}
 	result := Result{

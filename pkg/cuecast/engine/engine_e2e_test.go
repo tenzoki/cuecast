@@ -50,7 +50,7 @@ func TestE2E_AutoApproveBranch(t *testing.T) {
 
 	// The caller's run loop, re-supplying full model+state+ctx on every step.
 	ctx := engine.Context{Values: map[string]any{"amount": 500.0}}
-	state := engine.State{ActiveElementID: "start"}
+	state := engine.StartState("start")
 
 	visited := walk(t, m, shape, &state, ctx)
 
@@ -67,22 +67,23 @@ func TestE2E_ManagerReviewBranch(t *testing.T) {
 	m, shape := loadFixtures(t)
 
 	ctx := engine.Context{Values: map[string]any{"amount": 5000.0}}
-	state := engine.State{ActiveElementID: "start"}
+	state := engine.StartState("start")
 
 	var formSeen bool
 	var visited []string
 	for !state.Complete {
-		visited = append(visited, state.ActiveElementID)
+		tok := soleToken(t, state)
+		visited = append(visited, tok.ElementID)
 
-		res, err := engine.Process(m, state, ctx, shape)
+		res, err := engine.Process(m, state, tok, ctx, shape)
 		if err != nil {
-			t.Fatalf("Process(%s): %v", state.ActiveElementID, err)
+			t.Fatalf("Process(%s): %v", tok.ElementID, err)
 		}
 
 		if res.RequiresInput {
 			formSeen = true
-			if state.ActiveElementID != "manager_review" {
-				t.Fatalf("unexpected user-input step %q", state.ActiveElementID)
+			if tok.ElementID != "manager_review" {
+				t.Fatalf("unexpected user-input step %q", tok.ElementID)
 			}
 			// Amount must be pre-filled from context (binding key "amount").
 			if got := fieldValue(res.Form, "amount"); got != 5000.0 {
@@ -103,9 +104,9 @@ func TestE2E_ManagerReviewBranch(t *testing.T) {
 			}
 		}
 
-		next, err := engine.AccNext(m, state, ctx)
+		next, err := engine.AccNext(m, state, tok, ctx)
 		if err != nil {
-			t.Fatalf("AccNext(%s): %v", state.ActiveElementID, err)
+			t.Fatalf("AccNext(%s): %v", tok.ElementID, err)
 		}
 		state = next
 	}
@@ -127,14 +128,16 @@ func TestE2E_GatewayDefaultOnAbsentAmount(t *testing.T) {
 	m, _ := loadFixtures(t)
 
 	ctx := engine.Context{} // amount never set
-	state := engine.State{ActiveElementID: "gw_amount"}
+	state := engine.StartState("gw_amount")
+	tok := soleToken(t, state)
 
-	next, err := engine.AccNext(m, state, ctx)
+	next, err := engine.AccNext(m, state, tok, ctx)
 	if err != nil {
 		t.Fatalf("AccNext at gateway with absent amount errored: %v, want default routing", err)
 	}
-	if next.ActiveElementID != "manager_review" {
-		t.Errorf("absent amount routed to %q, want manager_review (default flow f_review target)", next.ActiveElementID)
+	got := soleToken(t, next).ElementID
+	if got != "manager_review" {
+		t.Errorf("absent amount routed to %q, want manager_review (default flow f_review target)", got)
 	}
 }
 
@@ -168,27 +171,41 @@ func TestE2E_InvalidSubmissions(t *testing.T) {
 	})
 }
 
-// walk drives an automatic (no user-input) run to completion, returning the visited
-// element ids. It re-supplies full model+state+ctx each step (statelessness).
+// walk drives an automatic (no user-input) single-token run to completion, returning
+// the visited element ids. It re-supplies full model+state+tok+ctx each step
+// (statelessness). The example fixtures are single-token, so each step holds exactly
+// one token; walk drives that sole token.
 func walk(t *testing.T, m model.Model, shape model.Shape, state *engine.State, ctx engine.Context) []string {
 	t.Helper()
 	var visited []string
 	for !state.Complete {
-		visited = append(visited, state.ActiveElementID)
-		res, err := engine.Process(m, *state, ctx, shape)
+		tok := soleToken(t, *state)
+		visited = append(visited, tok.ElementID)
+		res, err := engine.Process(m, *state, tok, ctx, shape)
 		if err != nil {
-			t.Fatalf("Process(%s): %v", state.ActiveElementID, err)
+			t.Fatalf("Process(%s): %v", tok.ElementID, err)
 		}
 		if res.RequiresInput {
-			t.Fatalf("walk hit an unexpected user-input step %q", state.ActiveElementID)
+			t.Fatalf("walk hit an unexpected user-input step %q", tok.ElementID)
 		}
-		next, err := engine.AccNext(m, *state, ctx)
+		next, err := engine.AccNext(m, *state, tok, ctx)
 		if err != nil {
-			t.Fatalf("AccNext(%s): %v", state.ActiveElementID, err)
+			t.Fatalf("AccNext(%s): %v", tok.ElementID, err)
 		}
 		*state = next
 	}
 	return visited
+}
+
+// soleToken returns the single token of a single-token state, failing the test if the
+// state does not hold exactly one token. The example fixtures never fork, so every
+// step of an example walk holds exactly one token.
+func soleToken(t *testing.T, s engine.State) engine.Token {
+	t.Helper()
+	if len(s.ActiveTokens) != 1 {
+		t.Fatalf("expected a single-token state, got %d tokens: %+v", len(s.ActiveTokens), s.ActiveTokens)
+	}
+	return s.ActiveTokens[0]
 }
 
 func assertPath(t *testing.T, got, want []string) {

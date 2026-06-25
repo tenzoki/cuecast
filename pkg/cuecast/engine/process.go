@@ -15,15 +15,19 @@ import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 //   - automatic task, gateway, start/end event: Result.RequiresInput is false and
 //     Form is nil; the caller proceeds directly to AccNext.
 //
-// If state.ActiveElementID does not name an element in model, Process returns a
-// structured engine error rather than a form (C2).
+// Process acts on one token: the active element is tok.ElementID. The caller loops
+// over State.ActiveTokens and calls Process for each. state is passed for symmetry
+// with AccNext and for future use; the active element comes from tok.
+//
+// If tok.ElementID does not name an element in model, Process returns a structured
+// engine error rather than a form (C2).
 //
 // The shape argument is consulted only for a user-input task. For non-user-input
 // active elements the caller may pass a zero Shape.
-func Process(m model.Model, state State, ctx Context, shape model.Shape) (Result, error) {
-	el, ok := findElement(m, state.ActiveElementID)
+func Process(m model.Model, state State, tok Token, ctx Context, shape model.Shape) (Result, error) {
+	el, ok := findElement(m, tok.ElementID)
 	if !ok {
-		return Result{}, newError("Process", state.ActiveElementID,
+		return Result{}, newError("Process", tok.ElementID,
 			"active element does not exist in the model")
 	}
 

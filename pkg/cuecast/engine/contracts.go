@@ -2,15 +2,51 @@ package engine
 
 import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 
-// State identifies the single-token position of a process run. v1 is single-token
-// (one active element). Complete marks the process as finished: when Complete is true
-// the process has reached an end event and ActiveElementID is empty. Serves spec C5.
+// State identifies the position of a process run as a set of active tokens. A run
+// may hold one token (the single-token case — today's entire behaviour) or several
+// (once a parallel gateway forks). Complete marks the process as finished: Complete
+// is true exactly when the token set is empty (Complete == (len(ActiveTokens) == 0)),
+// which is reached when the last token is removed at an end event. Serves spec C5.
+//
+// ActiveTokens is kept sorted by (ElementID, ArrivedVia) after every AccNext, so a
+// run is deterministic regardless of the order tokens were produced in. With a single
+// token the sort is a no-op and the set behaves exactly like the former single
+// ActiveElementID field.
 type State struct {
-	// ActiveElementID is the id of the currently active model element. Empty when the
-	// process is complete.
-	ActiveElementID string `json:"activeElementId"`
-	// Complete marks process termination (an end event was reached).
+	// ActiveTokens are the currently active tokens. Empty when the process is complete.
+	ActiveTokens []Token `json:"activeTokens"`
+	// Complete marks process termination (the token set has emptied). It is redundant
+	// with len(ActiveTokens) == 0 but kept as the explicit loop-termination signal.
 	Complete bool `json:"complete"`
+}
+
+// Token is one active position in a process run.
+type Token struct {
+	// ElementID is the id of the model element this token sits on.
+	ElementID string `json:"elementId"`
+	// ArrivedVia is empty for a normal token. For a token parked on a parallel-gateway
+	// join it holds the id of the incoming flow the token traversed to reach the join —
+	// the join fires when the ArrivedVia set across the tokens parked on it covers all of
+	// the join's incoming flows. This is the only state that records partial join
+	// arrival, keeping the engine stateless. (Used in Bundle C; not yet exercised here.)
+	ArrivedVia string `json:"arrivedVia,omitempty"`
+}
+
+// StartState returns a single-token state positioned on the element id — the starting
+// point of a run (typically the start event). The token is a normal token
+// (ArrivedVia == "").
+func StartState(id string) State {
+	return State{ActiveTokens: []Token{{ElementID: id}}}
+}
+
+// single returns the sole token of a single-token state and whether the state holds
+// exactly one token. It is the helper for single-token assertions; a multi-token state
+// (false) must be driven token by token via the caller's loop.
+func (s State) single() (Token, bool) {
+	if len(s.ActiveTokens) == 1 {
+		return s.ActiveTokens[0], true
+	}
+	return Token{}, false
 }
 
 // Context is the accumulated process data the engine reads on every call. It holds

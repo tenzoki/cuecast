@@ -2,10 +2,23 @@ package engine
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
+
+// soleElement returns the ElementID of a single-token state, failing the test if the
+// state does not hold exactly one token. Single-token AccNext results are asserted
+// through this helper, mirroring the former next.ActiveElementID assertions.
+func soleElement(t *testing.T, s State) string {
+	t.Helper()
+	tok, ok := s.single()
+	if !ok {
+		t.Fatalf("expected a single-token state, got %d tokens: %+v", len(s.ActiveTokens), s.ActiveTokens)
+	}
+	return tok.ElementID
+}
 
 func accNextModel() model.Model {
 	// start -> gw -> (auto | review) -> end
@@ -30,11 +43,11 @@ func accNextModel() model.Model {
 
 func TestAccNext_SimpleSuccessor(t *testing.T) {
 	m := accNextModel()
-	next, err := AccNext(m, State{ActiveElementID: "start"}, Context{})
+	next, err := AccNext(m, StartState("start"), Token{ElementID: "start"}, Context{})
 	if err != nil {
 		t.Fatalf("AccNext(start) error: %v", err)
 	}
-	if next.ActiveElementID != "gw" || next.Complete {
+	if soleElement(t, next) != "gw" || next.Complete {
 		t.Errorf("AccNext(start) = %+v, want active gw", next)
 	}
 }
@@ -42,24 +55,24 @@ func TestAccNext_SimpleSuccessor(t *testing.T) {
 func TestAccNext_GatewayTrueBranch(t *testing.T) {
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": 500.0}}
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("AccNext(gw, amount=500) error: %v", err)
 	}
-	if next.ActiveElementID != "auto" {
-		t.Errorf("amount=500 routed to %q, want auto", next.ActiveElementID)
+	if got := soleElement(t, next); got != "auto" {
+		t.Errorf("amount=500 routed to %q, want auto", got)
 	}
 }
 
 func TestAccNext_GatewayFalseBranch(t *testing.T) {
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("AccNext(gw, amount=5000) error: %v", err)
 	}
-	if next.ActiveElementID != "review" {
-		t.Errorf("amount=5000 routed to %q, want review", next.ActiveElementID)
+	if got := soleElement(t, next); got != "review" {
+		t.Errorf("amount=5000 routed to %q, want review", got)
 	}
 }
 
@@ -77,12 +90,12 @@ func TestAccNext_GatewayDefaultBranch(t *testing.T) {
 		},
 	}
 	ctx := Context{Values: map[string]any{"amount": 50.0}}
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("AccNext default-branch error: %v", err)
 	}
-	if next.ActiveElementID != "b" {
-		t.Errorf("default routed to %q, want b", next.ActiveElementID)
+	if got := soleElement(t, next); got != "b" {
+		t.Errorf("default routed to %q, want b", got)
 	}
 }
 
@@ -93,12 +106,12 @@ func TestAccNext_GatewayDefaultOnAbsentKey(t *testing.T) {
 	// 260612-1907[o]-gateway-default-bypassed-on-missing-key-eval-error).
 	m := accNextModel() // gw default = f_review (amount >= 1000 -> review)
 	ctx := Context{}    // amount absent
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("AccNext(gw, amount absent) error: %v, want default routing", err)
 	}
-	if next.ActiveElementID != "review" {
-		t.Errorf("amount absent routed to %q, want review (the default flow target)", next.ActiveElementID)
+	if got := soleElement(t, next); got != "review" {
+		t.Errorf("amount absent routed to %q, want review (the default flow target)", got)
 	}
 }
 
@@ -107,12 +120,12 @@ func TestAccNext_GatewayDefaultOnNonNumericKey(t *testing.T) {
 	// non-match, routing to the default rather than erroring.
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": "not-a-number"}}
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("AccNext(gw, amount non-numeric) error: %v, want default routing", err)
 	}
-	if next.ActiveElementID != "review" {
-		t.Errorf("non-numeric amount routed to %q, want review (the default flow target)", next.ActiveElementID)
+	if got := soleElement(t, next); got != "review" {
+		t.Errorf("non-numeric amount routed to %q, want review (the default flow target)", got)
 	}
 }
 
@@ -127,7 +140,7 @@ func TestAccNext_GatewayUnsatisfiable(t *testing.T) {
 		},
 	}
 	ctx := Context{Values: map[string]any{"amount": 50.0}}
-	_, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	_, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err == nil {
 		t.Fatal("unsatisfiable gateway returned no error")
 	}
@@ -151,29 +164,29 @@ func TestAccNext_FirstMatchWins(t *testing.T) {
 		},
 	}
 	ctx := Context{Values: map[string]any{"amount": 10.0}}
-	next, err := AccNext(m, State{ActiveElementID: "gw"}, ctx)
+	next, err := AccNext(m, StartState("gw"), Token{ElementID: "gw"}, ctx)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if next.ActiveElementID != "a" {
-		t.Errorf("first-match routed to %q, want a", next.ActiveElementID)
+	if got := soleElement(t, next); got != "a" {
+		t.Errorf("first-match routed to %q, want a", got)
 	}
 }
 
 func TestAccNext_EndEventCompletes(t *testing.T) {
 	m := accNextModel()
-	next, err := AccNext(m, State{ActiveElementID: "end"}, Context{})
+	next, err := AccNext(m, StartState("end"), Token{ElementID: "end"}, Context{})
 	if err != nil {
 		t.Fatalf("AccNext(end) error: %v", err)
 	}
-	if !next.Complete || next.ActiveElementID != "" {
-		t.Errorf("AccNext(end) = %+v, want complete with no active element", next)
+	if !next.Complete || len(next.ActiveTokens) != 0 {
+		t.Errorf("AccNext(end) = %+v, want complete with no active tokens", next)
 	}
 }
 
 func TestAccNext_InvalidState(t *testing.T) {
 	m := accNextModel()
-	_, err := AccNext(m, State{ActiveElementID: "ghost"}, Context{})
+	_, err := AccNext(m, StartState("ghost"), Token{ElementID: "ghost"}, Context{})
 	if err == nil {
 		t.Fatal("AccNext with invalid state returned no error")
 	}
@@ -182,10 +195,11 @@ func TestAccNext_InvalidState(t *testing.T) {
 func TestAccNext_Stateless(t *testing.T) {
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}
-	state := State{ActiveElementID: "gw"}
-	first, _ := AccNext(m, state, ctx)
-	second, _ := AccNext(m, state, ctx)
-	if first != second {
+	state := StartState("gw")
+	tok, _ := state.single()
+	first, _ := AccNext(m, state, tok, ctx)
+	second, _ := AccNext(m, state, tok, ctx)
+	if !reflect.DeepEqual(first, second) {
 		t.Errorf("AccNext not deterministic: %+v vs %+v", first, second)
 	}
 }

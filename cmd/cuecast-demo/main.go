@@ -60,46 +60,51 @@ func run(dir string, amount int, decision string) error {
 	fmt.Printf("model %q valid; walking with amount=%d\n\n", m.ID, amount)
 
 	// Caller owns state + context. Start at the start event; seed the amount.
-	state := engine.State{ActiveElementID: "start"}
+	// State is now a token set; this single-token example holds exactly one token
+	// at every step, so the inner token loop runs once per step.
+	state := engine.StartState("start")
 	ctx := engine.Context{Values: map[string]any{"amount": amount}}
 
 	for step := 1; !state.Complete; step++ {
-		res, err := engine.Process(m, state, ctx, shape)
-		if err != nil {
-			return fmt.Errorf("process %q: %w", state.ActiveElementID, err)
-		}
-
-		if res.RequiresInput {
-			fmt.Printf("step %d: %q needs user input\n", step, res.ActiveElementID)
-			for _, f := range res.Form.Fields {
-				fmt.Printf("    field %-9s type=%-6s required=%-5t prefilled=%-6v options=%v\n",
-					f.ID, f.Type, f.Required, f.Value, f.Options)
+		// One token in this example; iterate the set the way a multi-lane caller would.
+		for _, tok := range state.ActiveTokens {
+			res, err := engine.Process(m, state, tok, ctx, shape)
+			if err != nil {
+				return fmt.Errorf("process %q: %w", tok.ElementID, err)
 			}
 
-			// A real caller submits every form field. Carry the pre-filled
-			// values back in, then overlay what the user actually entered.
-			input := engine.Input{Values: map[string]any{}}
-			for _, f := range res.Form.Fields {
-				if f.Value != nil {
-					input.Values[f.ID] = f.Value
+			if res.RequiresInput {
+				fmt.Printf("step %d: %q needs user input\n", step, res.ActiveElementID)
+				for _, f := range res.Form.Fields {
+					fmt.Printf("    field %-9s type=%-6s required=%-5t prefilled=%-6v options=%v\n",
+						f.ID, f.Type, f.Required, f.Value, f.Options)
 				}
-			}
-			input.Values["decision"] = decision
-			input.Values["note"] = "submitted by cuecast-demo"
 
-			if errs := engine.ValidateInput(shape, input); len(errs) > 0 {
-				fmt.Printf("    -> input REJECTED: %v\n", errs)
-				return nil
-			}
-			ctx = engine.MergeInput(ctx, input, shape)
-			fmt.Printf("    -> submitted decision=%q (valid)\n", decision)
-		} else {
-			fmt.Printf("step %d: %q (automatic, no form)\n", step, res.ActiveElementID)
-		}
+				// A real caller submits every form field. Carry the pre-filled
+				// values back in, then overlay what the user actually entered.
+				input := engine.Input{Values: map[string]any{}}
+				for _, f := range res.Form.Fields {
+					if f.Value != nil {
+						input.Values[f.ID] = f.Value
+					}
+				}
+				input.Values["decision"] = decision
+				input.Values["note"] = "submitted by cuecast-demo"
 
-		state, err = engine.AccNext(m, state, ctx)
-		if err != nil {
-			return fmt.Errorf("accNext %q: %w", res.ActiveElementID, err)
+				if errs := engine.ValidateInput(shape, input); len(errs) > 0 {
+					fmt.Printf("    -> input REJECTED: %v\n", errs)
+					return nil
+				}
+				ctx = engine.MergeInput(ctx, input, shape)
+				fmt.Printf("    -> submitted decision=%q (valid)\n", decision)
+			} else {
+				fmt.Printf("step %d: %q (automatic, no form)\n", step, res.ActiveElementID)
+			}
+
+			state, err = engine.AccNext(m, state, tok, ctx)
+			if err != nil {
+				return fmt.Errorf("accNext %q: %w", res.ActiveElementID, err)
+			}
 		}
 	}
 
