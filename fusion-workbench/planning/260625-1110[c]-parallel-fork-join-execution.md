@@ -1,7 +1,7 @@
 # Implementation Plan: parallel (fork/join) execution for the cuecast engine
 
 **Date:** 2026-06-25
-**Status:** Draft
+**Status:** Complete
 **Spec:** `fusion-workbench/issues/260625-multitoken-parallel-execution-brief.md` (M1–M5, Invariants, Acceptance)
 
 ## Directive
@@ -425,3 +425,31 @@ fork/join run:
 - `fusion-workbench/issues/260625-0718[o]-e2e-testdata-lookup-coupled-to-package-depth.md`
   (pre-existing) — the new `parallel-process.json` fixture inherits the same brittle
   `../../../testdata` resolution; no new issue filed (already tracked).
+
+## Reconciliation Log
+
+**2026-06-25 12:21 (reconciler, domain=code).** All 17 steps verified `[DONE]` against the
+codebase. Status set to Complete; filename marker renamed `[p]` → `[c]`.
+
+Evidence per bundle:
+- **Bundle A (multi-token State, steps 1–5):** `pkg/cuecast/engine/contracts.go` carries
+  `State{ ActiveTokens []Token; Complete bool }`, `Token{ ElementID, ArrivedVia }`, and
+  `StartState(id)` (commit `0de94cc`). `Process`/`AccNext` take an explicit `Token`. Existing
+  e2e/unit fixtures migrated with unchanged expected paths — full suite green (AC4).
+- **Bundle B (fork, steps 6–7):** `model.KindParallelGateway` present in
+  `pkg/cuecast/model/model.go`; fork execution in `accnext.go` (commit `a04bda0`).
+- **Bundle C (join, steps 8–10):** `incomingFlows` helper + tagged park-on-join set-cover
+  algorithm in `accnext.go`; parked-join token returns no-input `Process` result (commits
+  `f58c4f0`, `78fa85c` — the C2 fix unified the arrival path so fork→join-direct parks both
+  branches rather than silently appending an untagged token).
+- **Bundle D (Validate + fixtures + determinism, steps 11–15):** `checkParallelGateways` in
+  `validate.go` rejects conditioned flows, orphan topologies, and unbalanced nesting; the
+  D2 fix (`79f1415`) replaced the single-edge balance walk with `forkClosingJoin`, a
+  multi-path DFS that catches an exclusive-escape deadlock regardless of declared flow order.
+  `testdata/parallel-process.json` added; e2e + determinism tests present (commit `5a99ebc`).
+- **Bundle E (docs, steps 16–17):** CLAUDE.md out-of-scope line no longer lists parallel
+  gateways/tokens (lines 34–35) and documents the token-set `State`; README updated (commit
+  `512c494`).
+
+Build + `go test -race -count=1 ./...` + `go vet ./...` all green at HEAD `512c494`. No drift
+between plan claims and code. No new issues filed during reconciliation.
