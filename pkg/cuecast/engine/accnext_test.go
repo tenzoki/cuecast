@@ -192,6 +192,44 @@ func TestAccNext_InvalidState(t *testing.T) {
 	}
 }
 
+func TestAccNext_ParallelGatewayFork(t *testing.T) {
+	// A parallel gateway with N outgoing flows splits the arriving token into N fresh
+	// tokens, one per outgoing branch, returned in sorted order regardless of the
+	// declared flow order.
+	m := model.Model{
+		Elements: []model.Element{
+			{ID: "start", Kind: model.KindStartEvent},
+			{ID: "fork", Kind: model.KindParallelGateway},
+			{ID: "task_b", Kind: model.KindTask, Automatic: true},
+			{ID: "task_a", Kind: model.KindTask, Automatic: true},
+			{ID: "task_c", Kind: model.KindTask, Automatic: true},
+			{ID: "end", Kind: model.KindEndEvent},
+		},
+		Flows: []model.SequenceFlow{
+			{ID: "f_start", Source: "start", Target: "fork"},
+			// Declared out of sorted order to prove the result is sorted.
+			{ID: "f_b", Source: "fork", Target: "task_b"},
+			{ID: "f_c", Source: "fork", Target: "task_c"},
+			{ID: "f_a", Source: "fork", Target: "task_a"},
+		},
+	}
+	next, err := AccNext(m, StartState("fork"), Token{ElementID: "fork"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(fork) error: %v", err)
+	}
+	want := []Token{
+		{ElementID: "task_a"},
+		{ElementID: "task_b"},
+		{ElementID: "task_c"},
+	}
+	if !reflect.DeepEqual(next.ActiveTokens, want) {
+		t.Errorf("fork produced %+v, want %+v (one sorted token per outgoing flow)", next.ActiveTokens, want)
+	}
+	if next.Complete {
+		t.Errorf("fork state Complete=true, want false (three active tokens)")
+	}
+}
+
 func TestAccNext_Stateless(t *testing.T) {
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}

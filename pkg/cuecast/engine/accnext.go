@@ -27,6 +27,11 @@ import (
 //     none-match safety net (spec C4). If none match and there is no default, AccNext
 //     returns a structured error naming the gateway. tok is replaced by one token on
 //     the selected flow's target.
+//   - parallel gateway acting as a fork (more than one outgoing flow): tok is removed
+//     and one fresh token is added per outgoing flow (each ElementID = flow.Target,
+//     ArrivedVia = ""). A parallel gateway that is not a fork (one or zero outgoing
+//     flows) is the join role, handled by the single-successor path below for now
+//     (full join semantics land in a later bundle).
 //   - any other element (start event, task) with a single outgoing flow: tok is
 //     replaced by one token on that flow's target. Zero outgoing flows from a non-end
 //     element, or more than one from a non-gateway element, is a structured error (the
@@ -55,6 +60,18 @@ func AccNext(m model.Model, state State, tok Token, ctx Context) (State, error) 
 			return State{}, err
 		}
 		return finalize(replaceToken(state.ActiveTokens, tok, Token{ElementID: target})), nil
+	}
+
+	// Parallel gateway in the fork role (more than one outgoing flow): the arriving
+	// token splits into one fresh token per outgoing branch. A parallel gateway with
+	// one (or zero) outgoing flow is the join role and falls through to the
+	// single-successor path below until join semantics land.
+	if el.Kind == model.KindParallelGateway && len(outs) > 1 {
+		forked := removeToken(state.ActiveTokens, tok)
+		for _, f := range outs {
+			forked = append(forked, Token{ElementID: f.Target})
+		}
+		return finalize(forked), nil
 	}
 
 	// Non-gateway, non-end element: expect exactly one successor.

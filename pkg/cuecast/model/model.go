@@ -15,6 +15,14 @@ const (
 	// KindExclusiveGateway routes the single token down exactly one outgoing flow
 	// whose condition evaluates true (or the default flow when none match).
 	KindExclusiveGateway ElementKind = "exclusive_gateway"
+	// KindParallelGateway forks or joins tokens; like KindExclusiveGateway it is one
+	// kind whose role is distinguished by topology, not by a separate kind: a fork has
+	// one incoming flow and N outgoing flows (the arriving token splits into N parallel
+	// tokens), a join has N incoming flows and one outgoing flow (tokens park until all
+	// incoming branches have arrived, then a single token continues). Parallel-gateway
+	// flows carry no Condition — every outgoing branch of a fork is taken
+	// unconditionally (validation enforced in a later bundle).
+	KindParallelGateway ElementKind = "parallel_gateway"
 )
 
 // Model is the typed BPMN-subset process definition the engine executes. It is
