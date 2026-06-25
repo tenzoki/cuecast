@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 func TestMergeInput_KeyScheme(t *testing.T) {

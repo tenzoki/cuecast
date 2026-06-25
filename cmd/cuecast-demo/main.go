@@ -19,8 +19,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tenzoki/cuecast/pkg/engine"
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/engine"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 func main() {

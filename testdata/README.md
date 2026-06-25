@@ -1,7 +1,7 @@
 # cuecast engine test fixtures
 
 These hand-authored JSON files drive the end-to-end engine test
-(`pkg/engine/engine_e2e_test.go`). They are *engine test inputs* — not project data —
+(`pkg/cuecast/engine/engine_e2e_test.go`). They are *engine test inputs* — not project data —
 and ride with the Go test suite. They also serve as the worked example of the
 authored BPMN-subset JSON format and the shape format, for any future caller or the
 deferred HTTP/JSON adapter.

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/tenzoki/cuecast/pkg/model"
+import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 
 // AccNext computes the next State of a process run from the current state and the
 // accumulated context. It is stateless: the same (model, state, ctx) always yields

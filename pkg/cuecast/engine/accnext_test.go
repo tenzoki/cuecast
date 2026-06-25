@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 func accNextModel() model.Model {

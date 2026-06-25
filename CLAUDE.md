@@ -14,8 +14,8 @@ Full overview, the four operations, and usage: see `README.md`.
 - **No JSON in call signatures.** Every engine input/output is a Go struct. JSON exists
   only at the parse edge (`model.ParseModel`, `model.ParseShape`). A caller talking to a
   browser serializes structs to JSON at its own boundary, not inside the engine.
-- **One-way package dependency.** `pkg/engine` depends on `pkg/model`; nothing depends on
-  `pkg/engine`. No cycle.
+- **One-way package dependency.** `pkg/cuecast/engine` depends on `pkg/cuecast/model`; nothing
+  depends on `pkg/cuecast/engine`. No cycle.
 - **Out of scope** (v1 library): persistence, the run loop, HTTP server, web-UI renderer,
   row-oriented tables, parallel gateways/tokens, timer/message/signal events,
   sub-processes, auth.

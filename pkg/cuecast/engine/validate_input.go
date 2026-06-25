@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 // dateLayouts are the accepted date formats for a FieldDate value submitted as a

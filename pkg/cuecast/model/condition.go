@@ -9,7 +9,7 @@ import (
 // 260612-1557[a] (Option 2) a condition is authored as an infix expression string
 // over Context keys — e.g. `amount > 1000 && region == "EU"`. This type carries the
 // authored expression and round-trips through the BPMN-subset JSON. The engine owns
-// parsing and deterministic evaluation (see pkg/engine: Validate surfaces parse
+// parsing and deterministic evaluation (see pkg/cuecast/engine: Validate surfaces parse
 // errors against the flow id; AccNext evaluates via the evalCondition seam); the
 // model deliberately holds only the source string so the parsed AST stays an engine
 // concern. Serves spec C4.

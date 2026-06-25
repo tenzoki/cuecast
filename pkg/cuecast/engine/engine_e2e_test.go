@@ -5,16 +5,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tenzoki/cuecast/pkg/engine"
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/engine"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 // loadFixtures parses the example approval process and expense shape from testdata.
-// The fixtures live at the repo root's testdata/ directory; this test package is two
-// levels down (pkg/engine), so the path is resolved relative to the module root.
+// The fixtures live at the repo root's testdata/ directory; this test package is three
+// levels down (pkg/cuecast/engine), so the path is resolved relative to the module root.
 func loadFixtures(t *testing.T) (model.Model, model.Shape) {
 	t.Helper()
-	root := filepath.Join("..", "..", "testdata")
+	root := filepath.Join("..", "..", "..", "testdata")
 
 	mb, err := os.ReadFile(filepath.Join(root, "approval-process.json"))
 	if err != nil {

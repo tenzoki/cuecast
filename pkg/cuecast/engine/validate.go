@@ -3,7 +3,7 @@ package engine
 import (
 	"fmt"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 // Validate checks that a process model is well-formed and executable, returning a

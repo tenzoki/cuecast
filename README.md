@@ -21,8 +21,8 @@ go get github.com/tenzoki/cuecast
 
 ```go
 import (
-	"github.com/tenzoki/cuecast/pkg/engine"
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/engine"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 ```
 
@@ -92,11 +92,11 @@ For a complete, runnable version of this loop, see `cmd/cuecast-demo` (described
 
 ## Packages
 
-- `pkg/model` — the typed domain (BPMN-subset `Model`, `Shape`/`Group`/`Field`,
+- `pkg/cuecast/model` — the typed domain (BPMN-subset `Model`, `Shape`/`Group`/`Field`,
   `Condition`) and the JSON parse edge (`ParseModel`, `ParseShape`).
-- `pkg/engine` — the operations and the `State`/`Context`/`Input`/`Result` contracts.
+- `pkg/cuecast/engine` — the operations and the `State`/`Context`/`Input`/`Result` contracts.
 
-`pkg/engine` depends on `pkg/model`; nothing depends on `pkg/engine`. One-way, no cycle.
+`pkg/cuecast/engine` depends on `pkg/cuecast/model`; nothing depends on `pkg/cuecast/engine`. One-way, no cycle.
 
 ## Try it
 

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/tenzoki/cuecast/pkg/model"
+import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 
 // State identifies the single-token position of a process run. v1 is single-token
 // (one active element). Complete marks the process as finished: when Complete is true

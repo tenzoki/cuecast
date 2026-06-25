@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 // This file implements the gateway-condition expression language (decision

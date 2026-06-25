@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 func inputShape() model.Shape {

@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/tenzoki/cuecast/pkg/model"
+import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 
 // buildForm constructs a FormDescription from a resolved Shape, pre-filling each
 // field's Value from ctx by the field's binding key (Field.BindingKey: the field's

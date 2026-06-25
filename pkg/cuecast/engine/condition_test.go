@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tenzoki/cuecast/pkg/model"
+	"github.com/tenzoki/cuecast/pkg/cuecast/model"
 )
 
 func TestEvalCondition_Truth(t *testing.T) {

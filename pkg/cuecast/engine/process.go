@@ -1,6 +1,6 @@
 package engine
 
-import "github.com/tenzoki/cuecast/pkg/model"
+import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 
 // Process identifies the active step from state and returns a typed Result for it. It
 // is stateless: re-supplying the same model+state+ctx reproduces the same Result.
