@@ -306,6 +306,9 @@ acceptance checks (AC1–AC5) and invariants.
     - Dependencies: all behaviour landed (Steps 1–15).
     - Acceptance: "Out of scope" no longer lists parallel gateways/tokens; the new `State`
       shape is documented.
+    - [DONE] CLAUDE.md updated: removed parallel gateways/tokens from "Out of scope";
+      added token-set `State` + per-token `Process`/`AccNext` + fork/join invariants;
+      stateless / no-JSON / one-way-dep invariants restated and kept accurate.
 
 17. **Update README.md operations description (if it specifies `State`/the four ops).**
     - Executor: coder
@@ -315,6 +318,11 @@ acceptance checks (AC1–AC5) and invariants.
       State contract. (HYG-DOCS-FRESH.)
     - Dependencies: Steps 1–15.
     - Acceptance: README matches the shipped API.
+    - [DONE] README.md updated: intro lists parallel gateway + token-set `State`;
+      four-ops section carries per-token `Process`/`AccNext` signatures, fork/join
+      semantics, and Validate's parallel rejections; Quickstart snippet replaced with the
+      multi-lane-safe driver (matches shipped signatures); Status out-of-scope line
+      drops parallel gateways/tokens. `go build` + `go test -race` green.
 
 ## Data Structures
 

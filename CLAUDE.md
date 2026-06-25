@@ -10,15 +10,29 @@ Full overview, the four operations, and usage: see `README.md`.
 
 - **Stateless engine.** Every operation is a pure function of its arguments. No I/O, no
   persistence, no hidden state. The caller owns `State` + `Context` and re-supplies the
-  full `model + state + ctx` on every step.
-- **No JSON in call signatures.** Every engine input/output is a Go struct. JSON exists
-  only at the parse edge (`model.ParseModel`, `model.ParseShape`). A caller talking to a
-  browser serializes structs to JSON at its own boundary, not inside the engine.
+  full `model + state + ctx` on every step. Arrival at a parallel join lives in `State`
+  (as `Token.ArrivedVia`), never in the engine.
+- **`State` is a token set.** `State{ ActiveTokens []Token, Complete bool }` with
+  `Token{ ElementID, ArrivedVia }`. A run holds one token (the single-token degenerate
+  case — the same as the former single active-element) or several once a parallel
+  gateway forks. `StartState(id)` seeds a one-token state on the start event.
+  `Complete == (len(ActiveTokens) == 0)`. `Process` and `AccNext` operate **per token**:
+  the caller drives one lane per step — pick one active token from the freshly-read
+  `State`, `Process` it, then `AccNext(m, state, tok, ctx)`, which rewrites the *whole*
+  next token set. Termination keys off `State.Complete`, not off whether one `AccNext`
+  moved a token (a pending join makes no forward progress).
+- **Parallel fork/join supported.** One element kind, `parallel_gateway`; its role
+  (fork vs join) is read from topology, not declared. A fork activates all outgoing
+  branches; a join is stateless — it fires when the `ArrivedVia` set across the tokens
+  parked on it set-covers all of the join's incoming flows.
+- **No JSON in call signatures.** Every engine input/output is a Go struct (`Token`
+  included). JSON exists only at the parse edge (`model.ParseModel`, `model.ParseShape`).
+  A caller talking to a browser serializes structs to JSON at its own boundary, not
+  inside the engine.
 - **One-way package dependency.** `pkg/cuecast/engine` depends on `pkg/cuecast/model`; nothing
-  depends on `pkg/cuecast/engine`. No cycle.
+  depends on `pkg/cuecast/engine`. No cycle. (`Token` lives in `engine`, not `model`.)
 - **Out of scope** (v1 library): persistence, the run loop, HTTP server, web-UI renderer,
-  row-oriented tables, parallel gateways/tokens, timer/message/signal events,
-  sub-processes, auth.
+  row-oriented tables, timer/message/signal events, sub-processes, auth.
 
 ## Commands
 
