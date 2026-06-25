@@ -37,6 +37,7 @@ func Validate(m model.Model) []ValidationError {
 	errs = append(errs, checkEndEvents(m.Elements)...)
 	errs = append(errs, checkFlowReferences(m.Flows, byID)...)
 	errs = append(errs, checkGateways(m, byID)...)
+	errs = append(errs, checkParallelGateways(m, byID)...)
 	errs = append(errs, checkUserInputTasks(m.Elements)...)
 	errs = append(errs, checkConditions(m.Flows)...)
 	errs = append(errs, checkReachability(m, byID)...)
@@ -162,6 +163,282 @@ func checkGateways(m model.Model, byID map[string]model.Element) []ValidationErr
 		}
 	}
 	return errs
+}
+
+// checkParallelGateways validates every parallel_gateway, the structural mirror of
+// checkGateways for the parallel-gateway kind. It enforces, with named ValidationErrors
+// and the fail-loud structured-error posture (append, never early-return):
+//
+//   - No condition on a parallel-gateway outgoing flow (Step 11). A fork takes every
+//     branch unconditionally; a condition there is meaningless and silently ignored at
+//     AccNext, so it is rejected against the flow id (HYG-NO-SILENT-FAIL).
+//   - Role/orphan (Step 12). Every parallel_gateway is a fork (incoming == 1, outgoing
+//     > 1) or a join (incoming > 1, outgoing == 1). Any other topology — both sides > 1,
+//     one-in/one-out, or zero on a side — is a structural error naming the gateway id.
+//   - Matching + balance + no-deadlock (Step 12). Every fork has a structurally matching
+//     join where all of its branches reconverge: each branch, traced forward with
+//     fork-depth balancing, reaches the same join at the depth the fork opened; no branch
+//     escapes to an end event or a different join. That join's incoming flows must all
+//     trace back to this fork, so the join can never wait forever for a branch that
+//     cannot arrive (no deadlock-by-construction). fork → join direct (an empty parallel
+//     block, no element between a fork branch and the join) is a balanced pair and is
+//     accepted — Validate and AccNext agree on its legality.
+//
+// Scope is the brief's v1 set: parallel + exclusive gateways, no inclusive, no loops. A
+// construct outside that set (e.g. a cycle through a parallel region) is rejected with a
+// clear named error rather than analysed — but legal exclusive-gateway usage is untouched
+// (this function only inspects parallel_gateway elements).
+func checkParallelGateways(m model.Model, byID map[string]model.Element) []ValidationError {
+	var errs []ValidationError
+	outgoing := outgoingFlows(m.Flows)
+	incoming := incomingFlows(m.Flows)
+
+	// Step 11: reject conditioned parallel-gateway outgoing flows.
+	for _, e := range m.Elements {
+		if e.Kind != model.KindParallelGateway {
+			continue
+		}
+		for _, f := range outgoing[e.ID] {
+			if f.Condition != nil {
+				errs = append(errs, ValidationError{
+					FlowID: f.ID,
+					Reason: "condition on a parallel-gateway flow is not allowed",
+				})
+			}
+		}
+	}
+
+	// Step 12: role/orphan classification, then per-fork matching + balance + no-deadlock.
+	for _, e := range m.Elements {
+		if e.Kind != model.KindParallelGateway {
+			continue
+		}
+		role := parallelRole(len(incoming[e.ID]), len(outgoing[e.ID]))
+		switch role {
+		case roleFork:
+			errs = append(errs, checkForkMatchesJoin(byID, incoming, outgoing, e.ID)...)
+		case roleJoin:
+			// A join's match is verified from its fork's side (checkForkMatchesJoin
+			// confirms every incoming flow traces back to the fork). An orphan join — a
+			// join no fork reconverges at — is reported below.
+			if !joinHasMatchingFork(byID, incoming, outgoing, e.ID) {
+				errs = append(errs, ValidationError{
+					ElementID: e.ID,
+					Reason:    "parallel-gateway join has no matching fork (its branches do not all trace back to one fork)",
+				})
+			}
+		default:
+			errs = append(errs, ValidationError{
+				ElementID: e.ID,
+				Reason: "parallel gateway is neither a fork (one incoming, many outgoing) " +
+					"nor a join (many incoming, one outgoing); its topology is structurally invalid",
+			})
+		}
+	}
+
+	return errs
+}
+
+type parallelGatewayRole int
+
+const (
+	roleInvalid parallelGatewayRole = iota
+	roleFork
+	roleJoin
+)
+
+// parallelRole classifies a parallel gateway by its incoming/outgoing flow counts. A fork
+// has exactly one incoming and more than one outgoing; a join has more than one incoming
+// and exactly one outgoing; everything else (both sides > 1, one-in/one-out, or zero on a
+// side) is structurally invalid.
+func parallelRole(inCount, outCount int) parallelGatewayRole {
+	switch {
+	case inCount == 1 && outCount > 1:
+		return roleFork
+	case inCount > 1 && outCount == 1:
+		return roleJoin
+	default:
+		return roleInvalid
+	}
+}
+
+// isParallelJoin reports whether elementID is a parallel_gateway in the join role
+// (more than one incoming flow), using the precomputed incoming-flow map.
+func isParallelJoin(byID map[string]model.Element, incoming map[string][]model.SequenceFlow, elementID string) bool {
+	el, ok := byID[elementID]
+	if !ok || el.Kind != model.KindParallelGateway {
+		return false
+	}
+	return len(incoming[elementID]) > 1
+}
+
+// isParallelFork reports whether elementID is a parallel_gateway in the fork role
+// (more than one outgoing flow), using the precomputed outgoing-flow map.
+func isParallelFork(byID map[string]model.Element, outgoing map[string][]model.SequenceFlow, elementID string) bool {
+	el, ok := byID[elementID]
+	if !ok || el.Kind != model.KindParallelGateway {
+		return false
+	}
+	return len(outgoing[elementID]) > 1
+}
+
+// checkForkMatchesJoin verifies that a fork's branches all reconverge at one structurally
+// matching join (balance), and that the matched join's incoming flows all trace back to
+// this fork (no deadlock-by-construction). It traces each outgoing branch forward with
+// fork-depth balancing: starting one level deep (the fork opened it), a nested fork
+// increments the depth and a join decrements it; the branch's matching join is the join
+// that brings the depth back to zero. fork → join direct is the degenerate case where a
+// branch's target is already the matching join at depth one — accepted as balanced.
+//
+// Errors (all named against the fork id, never early-returned):
+//   - a branch escapes to an end event (or dead-ends) before its depth returns to zero —
+//     unbalanced nesting / under-fed join;
+//   - branches reconverge at different joins — unbalanced nesting;
+//   - the loop/recursion bound is exceeded (a cycle through the parallel region — outside
+//     the v1 no-loops set) — rejected rather than analysed.
+//
+// The matched join's back-trace (every incoming flow's source path returns to this fork)
+// is enforced by joinHasMatchingFork when the join itself is visited; here we additionally
+// confirm the fork and its matched join have equal branch counts so neither is under-fed.
+func checkForkMatchesJoin(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, forkID string) []ValidationError {
+	branches := outgoing[forkID]
+	matched := ""
+	for _, b := range branches {
+		joinID, err := matchingJoin(byID, incoming, outgoing, b.Target)
+		if err != "" {
+			return []ValidationError{{ElementID: forkID, Reason: err}}
+		}
+		if joinID == "" {
+			return []ValidationError{{
+				ElementID: forkID,
+				Reason:    "a parallel-fork branch does not reconverge at a join (it escapes to an end event or dead-ends), so the matching join would be under-fed",
+			}}
+		}
+		if matched == "" {
+			matched = joinID
+		} else if matched != joinID {
+			return []ValidationError{{
+				ElementID: forkID,
+				Reason:    "parallel-fork branches reconverge at different joins; the fork/join nesting is unbalanced",
+			}}
+		}
+	}
+
+	// Balance: the matched join must take exactly as many incoming branches as this fork
+	// emits, so neither side is under- or over-fed.
+	if matched != "" && len(incoming[matched]) != len(branches) {
+		return []ValidationError{{
+			ElementID: forkID,
+			Reason:    "parallel-fork branch count does not equal its matching join's incoming-branch count; the nesting is unbalanced",
+		}}
+	}
+	return nil
+}
+
+// joinHasMatchingFork reports whether every incoming branch of a join traces back, with
+// fork-depth balancing, to one common fork at the depth the join closes — the symmetric
+// proof to checkForkMatchesJoin. An orphan join (incoming branches that originate at
+// different forks, or that cannot trace back to a fork at all) returns false.
+func joinHasMatchingFork(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, joinID string) bool {
+	branches := incoming[joinID]
+	matched := ""
+	for _, b := range branches {
+		forkID, err := matchingFork(byID, incoming, outgoing, b.Source)
+		if err != "" || forkID == "" {
+			return false
+		}
+		if matched == "" {
+			matched = forkID
+		} else if matched != forkID {
+			return false
+		}
+	}
+	return matched != "" && isParallelFork(byID, outgoing, matched) && len(outgoing[matched]) == len(branches)
+}
+
+// maxParallelTraversalSteps bounds the forward/backward balance walk so a cycle through a
+// parallel region (outside the v1 no-loops set) is rejected rather than looping forever.
+const maxParallelTraversalSteps = 10000
+
+// matchingJoin walks forward from a fork-branch's first target, returning the id of the
+// join at which the branch's parallel depth returns to zero (the fork's matching join), or
+// "" if the branch reaches an end event / dead-ends first, or a non-empty error string if a
+// step bound is exceeded (a loop) or the graph is otherwise un-analysable. Depth starts at
+// one (the originating fork already opened a level): a nested fork increments it, a join
+// decrements it. fork → join direct yields the join immediately (depth one → zero on the
+// first element when it is the matching join).
+func matchingJoin(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, startTarget string) (string, string) {
+	cur := startTarget
+	depth := 1
+	for steps := 0; ; steps++ {
+		if steps > maxParallelTraversalSteps {
+			return "", "a parallel-fork branch does not terminate at a join within the bound (a loop through the parallel region is outside the supported set)"
+		}
+		el, ok := byID[cur]
+		if !ok {
+			// Dangling reference; reported separately by checkFlowReferences.
+			return "", ""
+		}
+		if el.Kind == model.KindParallelGateway {
+			if isParallelFork(byID, outgoing, cur) {
+				depth++
+			} else if isParallelJoin(byID, incoming, cur) {
+				depth--
+				if depth == 0 {
+					return cur, ""
+				}
+			}
+		}
+		if el.Kind == model.KindEndEvent {
+			return "", ""
+		}
+		outs := outgoing[cur]
+		if len(outs) == 0 {
+			return "", ""
+		}
+		// Follow any single forward edge: along a balanced parallel region every branch of
+		// an inner fork leads to the same inner join, so the first edge reaches the same
+		// closing join. Exclusive-gateway branches likewise reconverge before the region
+		// closes in the v1 set.
+		cur = outs[0].Target
+	}
+}
+
+// matchingFork is the backward dual of matchingJoin: it walks backward from a join-branch's
+// source, returning the id of the fork at which the branch's parallel depth returns to zero
+// (the join's matching fork), or "" if it reaches the start / dead-ends first, or an error
+// string if a step bound is exceeded. Depth starts at one (the join already closed a
+// level): walking back over a join increments it, over a fork decrements it.
+func matchingFork(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, startSource string) (string, string) {
+	cur := startSource
+	depth := 1
+	for steps := 0; ; steps++ {
+		if steps > maxParallelTraversalSteps {
+			return "", "a parallel-join branch does not originate at a fork within the bound (a loop through the parallel region is outside the supported set)"
+		}
+		el, ok := byID[cur]
+		if !ok {
+			return "", ""
+		}
+		if el.Kind == model.KindParallelGateway {
+			if isParallelJoin(byID, incoming, cur) {
+				depth++
+			} else if isParallelFork(byID, outgoing, cur) {
+				depth--
+				if depth == 0 {
+					return cur, ""
+				}
+			}
+		}
+		if el.Kind == model.KindStartEvent {
+			return "", ""
+		}
+		ins := incoming[cur]
+		if len(ins) == 0 {
+			return "", ""
+		}
+		cur = ins[0].Source
+	}
 }
 
 func checkUserInputTasks(elems []model.Element) []ValidationError {

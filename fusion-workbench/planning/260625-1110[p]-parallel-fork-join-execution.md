@@ -223,7 +223,7 @@ acceptance checks (AC1–AC5) and invariants.
 
 ### Bundle D — Validate additions + fixtures + determinism
 
-11. **Validate: reject conditioned parallel-gateway flows.**
+11. [DONE] **Validate: reject conditioned parallel-gateway flows.**
     - Executor: coder
     - Files: `pkg/cuecast/engine/validate.go`
     - Changes: add `checkParallelGateways(m, byID)`. For every `parallel_gateway`, any
@@ -233,7 +233,7 @@ acceptance checks (AC1–AC5) and invariants.
     - Acceptance (AC3 partial): a model with a condition on a fork-out flow fails Validate
       with a named flow error.
 
-12. **Validate: fork/join matching, balance, and no deadlock-by-construction.**
+12. [DONE] **Validate: fork/join matching, balance, and no deadlock-by-construction.**
     - Executor: coder
     - Files: `pkg/cuecast/engine/validate.go`
     - Changes: extend `checkParallelGateways` to enforce, with named errors:
@@ -254,7 +254,7 @@ acceptance checks (AC1–AC5) and invariants.
     - Acceptance (AC3): Validate rejects orphan fork, orphan join, and unbalanced nesting,
       each with a named error.
 
-13. **New fixtures: fork → two tasks → join, plus a pending-join walk.**
+13. [DONE] **New fixtures: fork → two tasks → join, plus a pending-join walk.**
     - Executor: coder
     - Files: `testdata/parallel-process.json` (new), and a malformed-model fixture or inline
       models in tests for the Validate-rejection cases.
@@ -267,7 +267,7 @@ acceptance checks (AC1–AC5) and invariants.
     - Acceptance: fixtures parse (the valid one) / are rejected (the malformed ones) as
       intended.
 
-14. **End-to-end fork/join walk test.**
+14. [DONE] **End-to-end fork/join walk test.**
     - Executor: coder
     - Files: `pkg/cuecast/engine/engine_e2e_test.go` (or a new `parallel_e2e_test.go`).
     - Changes: drive the multi-token loop over `parallel-process.json`: from `start`, the
@@ -280,7 +280,7 @@ acceptance checks (AC1–AC5) and invariants.
     - Acceptance (AC1, AC2): both branches execute exactly once; join waits for all branches;
       run completes.
 
-15. **Determinism test: repeated `AccNext` over a forked state is byte-identical.**
+15. [DONE] **Determinism test: repeated `AccNext` over a forked state is byte-identical.**
     - Executor: coder
     - Files: `pkg/cuecast/engine/accnext_test.go`.
     - Changes: build a forked `State` (post-fork, two tokens). Run `AccNext` over it twice

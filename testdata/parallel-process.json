@@ -1,0 +1,20 @@
+{
+  "id": "parallel-process",
+  "name": "Parallel Fork/Join",
+  "elements": [
+    { "id": "start", "kind": "start_event", "name": "Begin" },
+    { "id": "fork", "kind": "parallel_gateway", "name": "Split lanes" },
+    { "id": "task_a", "kind": "task", "name": "Lane A", "automatic": true },
+    { "id": "task_b", "kind": "task", "name": "Lane B", "automatic": true },
+    { "id": "join", "kind": "parallel_gateway", "name": "Reconverge" },
+    { "id": "end", "kind": "end_event", "name": "Done" }
+  ],
+  "flows": [
+    { "id": "f_start", "source": "start", "target": "fork" },
+    { "id": "f_fork_a", "source": "fork", "target": "task_a" },
+    { "id": "f_fork_b", "source": "fork", "target": "task_b" },
+    { "id": "f_a_join", "source": "task_a", "target": "join" },
+    { "id": "f_b_join", "source": "task_b", "target": "join" },
+    { "id": "f_join_end", "source": "join", "target": "end" }
+  ]
+}

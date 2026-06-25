@@ -465,3 +465,94 @@ func TestAccNext_Stateless(t *testing.T) {
 		t.Errorf("AccNext not deterministic: %+v vs %+v", first, second)
 	}
 }
+
+// TestAccNext_ForkedStateDeterministic drives AccNext over a forked (two-token) state twice
+// with identical (model, state, tok, ctx) and asserts the returned ActiveTokens slices are
+// byte-identical — same length, same order, same ArrivedVia (AC5). The token advanced is
+// one of the two parallel branches; the other token must survive untouched and in the same
+// sorted position both times.
+func TestAccNext_ForkedStateDeterministic(t *testing.T) {
+	m := parallelJoinModel()
+	// Post-fork state: two tokens, one on each branch task.
+	state := State{ActiveTokens: []Token{
+		{ElementID: "task_a"},
+		{ElementID: "task_b"},
+	}}
+	tok := Token{ElementID: "task_a"}
+
+	first, err := AccNext(m, state, tok, Context{})
+	if err != nil {
+		t.Fatalf("first AccNext error: %v", err)
+	}
+	second, err := AccNext(m, state, tok, Context{})
+	if err != nil {
+		t.Fatalf("second AccNext error: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("repeated AccNext over a forked state not byte-identical:\n first=%+v\nsecond=%+v", first, second)
+	}
+	// task_a parks on the join (tagged), task_b survives; sorted, "join" < "task_b".
+	want := []Token{
+		{ElementID: "join", ArrivedVia: "f_a_join"},
+		{ElementID: "task_b"},
+	}
+	if !reflect.DeepEqual(first.ActiveTokens, want) {
+		t.Errorf("forked AccNext = %+v, want %+v", first.ActiveTokens, want)
+	}
+}
+
+// TestAccNext_ForkOutputSortedRegardlessOfFlowOrder asserts the fork's output token set is
+// sorted by (ElementID, ArrivedVia) regardless of the order the outgoing flows are declared
+// (AC5). Two model variants differ only in declared fork-flow order; both must produce the
+// identical sorted token set.
+func TestAccNext_ForkOutputSortedRegardlessOfFlowOrder(t *testing.T) {
+	base := func(flows []model.SequenceFlow) model.Model {
+		return model.Model{
+			ID: "fork-order",
+			Elements: []model.Element{
+				{ID: "start", Kind: model.KindStartEvent},
+				{ID: "fork", Kind: model.KindParallelGateway},
+				{ID: "task_a", Kind: model.KindTask, Automatic: true},
+				{ID: "task_b", Kind: model.KindTask, Automatic: true},
+				{ID: "task_c", Kind: model.KindTask, Automatic: true},
+				{ID: "end", Kind: model.KindEndEvent},
+			},
+			Flows: flows,
+		}
+	}
+	ascending := base([]model.SequenceFlow{
+		{ID: "f_start", Source: "start", Target: "fork"},
+		{ID: "f_a", Source: "fork", Target: "task_a"},
+		{ID: "f_b", Source: "fork", Target: "task_b"},
+		{ID: "f_c", Source: "fork", Target: "task_c"},
+	})
+	scrambled := base([]model.SequenceFlow{
+		{ID: "f_start", Source: "start", Target: "fork"},
+		{ID: "f_c", Source: "fork", Target: "task_c"},
+		{ID: "f_a", Source: "fork", Target: "task_a"},
+		{ID: "f_b", Source: "fork", Target: "task_b"},
+	})
+
+	want := []Token{
+		{ElementID: "task_a"},
+		{ElementID: "task_b"},
+		{ElementID: "task_c"},
+	}
+	for _, tc := range []struct {
+		name string
+		m    model.Model
+	}{
+		{"ascending flow order", ascending},
+		{"scrambled flow order", scrambled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			next, err := AccNext(tc.m, StartState("fork"), Token{ElementID: "fork"}, Context{})
+			if err != nil {
+				t.Fatalf("AccNext(fork) error: %v", err)
+			}
+			if !reflect.DeepEqual(next.ActiveTokens, want) {
+				t.Errorf("fork output = %+v, want %+v (sorted regardless of flow order)", next.ActiveTokens, want)
+			}
+		})
+	}
+}
