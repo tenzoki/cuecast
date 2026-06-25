@@ -283,50 +283,41 @@ func isParallelFork(byID map[string]model.Element, outgoing map[string][]model.S
 }
 
 // checkForkMatchesJoin verifies that a fork's branches all reconverge at one structurally
-// matching join (balance), and that the matched join's incoming flows all trace back to
-// this fork (no deadlock-by-construction). It traces each outgoing branch forward with
-// fork-depth balancing: starting one level deep (the fork opened it), a nested fork
-// increments the depth and a join decrements it; the branch's matching join is the join
-// that brings the depth back to zero. fork → join direct is the degenerate case where a
-// branch's target is already the matching join at depth one — accepted as balanced.
+// matching join (balance), and that the matched join is fed by exactly this fork's branches
+// and no other (no deadlock-by-construction). It runs ONE multi-path depth-balanced
+// traversal forward from the fork over EVERY out-edge of every node it reaches — not just
+// the first — so an exclusive gateway inside the region that fans out to multiple targets
+// has all of its branches inspected. The property enforced:
+//
+//   - EVERY directed path leaving the fork must reach one common join at balanced depth
+//     (depth returns to zero exactly at that join), and
+//   - NO path may reach an end event, a different join, or a dead-end before it.
+//
+// Depth balancing handles nesting: a nested fork opens a level (depth++), its own join
+// closes it (depth--); the outer fork's closing join is the one that brings depth back to
+// zero. fork → join direct is the degenerate case where a branch's target is already the
+// closing join at depth one.
 //
 // Errors (all named against the fork id, never early-returned):
-//   - a branch escapes to an end event (or dead-ends) before its depth returns to zero —
-//     unbalanced nesting / under-fed join;
-//   - branches reconverge at different joins — unbalanced nesting;
-//   - the loop/recursion bound is exceeded (a cycle through the parallel region — outside
+//   - a path escapes to an end event (or dead-ends) before depth returns to zero —
+//     deadlock-by-construction / under-fed join;
+//   - paths reconverge at different joins, or an exclusive branch escapes to a different
+//     join — unbalanced nesting;
+//   - the traversal step bound is exceeded (a cycle through the parallel region — outside
 //     the v1 no-loops set) — rejected rather than analysed.
 //
-// The matched join's back-trace (every incoming flow's source path returns to this fork)
-// is enforced by joinHasMatchingFork when the join itself is visited; here we additionally
-// confirm the fork and its matched join have equal branch counts so neither is under-fed.
+// Balance is the final guard: the closing join must take exactly as many incoming branches
+// as this fork emits, so neither side is under- or over-fed (this also catches a stray
+// branch feeding the closing join from outside the region).
 func checkForkMatchesJoin(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, forkID string) []ValidationError {
-	branches := outgoing[forkID]
-	matched := ""
-	for _, b := range branches {
-		joinID, err := matchingJoin(byID, incoming, outgoing, b.Target)
-		if err != "" {
-			return []ValidationError{{ElementID: forkID, Reason: err}}
-		}
-		if joinID == "" {
-			return []ValidationError{{
-				ElementID: forkID,
-				Reason:    "a parallel-fork branch does not reconverge at a join (it escapes to an end event or dead-ends), so the matching join would be under-fed",
-			}}
-		}
-		if matched == "" {
-			matched = joinID
-		} else if matched != joinID {
-			return []ValidationError{{
-				ElementID: forkID,
-				Reason:    "parallel-fork branches reconverge at different joins; the fork/join nesting is unbalanced",
-			}}
-		}
+	matched, err := forkClosingJoin(byID, incoming, outgoing, forkID)
+	if err != "" {
+		return []ValidationError{{ElementID: forkID, Reason: err}}
 	}
 
 	// Balance: the matched join must take exactly as many incoming branches as this fork
 	// emits, so neither side is under- or over-fed.
-	if matched != "" && len(incoming[matched]) != len(branches) {
+	if matched != "" && len(incoming[matched]) != len(outgoing[forkID]) {
 		return []ValidationError{{
 			ElementID: forkID,
 			Reason:    "parallel-fork branch count does not equal its matching join's incoming-branch count; the nesting is unbalanced",
@@ -335,110 +326,126 @@ func checkForkMatchesJoin(byID map[string]model.Element, incoming, outgoing map[
 	return nil
 }
 
-// joinHasMatchingFork reports whether every incoming branch of a join traces back, with
-// fork-depth balancing, to one common fork at the depth the join closes — the symmetric
-// proof to checkForkMatchesJoin. An orphan join (incoming branches that originate at
-// different forks, or that cannot trace back to a fork at all) returns false.
+// joinHasMatchingFork reports whether the join is the balanced closing join of exactly one
+// fork, every one of whose branches reconverges at it — the orphan-join guard. It reuses
+// the same forward multi-path traversal as checkForkMatchesJoin (HYG-SOT): a join is matched
+// iff there is a fork whose forward analysis closes at this join with equal branch counts.
+// An orphan join — one fed by a branch that does not originate inside one fork's region, or
+// fed by two different forks — has no such fork and returns false.
 func joinHasMatchingFork(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, joinID string) bool {
-	branches := incoming[joinID]
-	matched := ""
-	for _, b := range branches {
-		forkID, err := matchingFork(byID, incoming, outgoing, b.Source)
-		if err != "" || forkID == "" {
-			return false
+	for id, el := range byID {
+		if el.Kind != model.KindParallelGateway || !isParallelFork(byID, outgoing, id) {
+			continue
 		}
-		if matched == "" {
-			matched = forkID
-		} else if matched != forkID {
-			return false
+		closing, err := forkClosingJoin(byID, incoming, outgoing, id)
+		if err == "" && closing == joinID && len(incoming[joinID]) == len(outgoing[id]) {
+			return true
 		}
 	}
-	return matched != "" && isParallelFork(byID, outgoing, matched) && len(outgoing[matched]) == len(branches)
+	return false
 }
 
-// maxParallelTraversalSteps bounds the forward/backward balance walk so a cycle through a
-// parallel region (outside the v1 no-loops set) is rejected rather than looping forever.
+// maxParallelTraversalSteps bounds the multi-path balance traversal so a cycle through a
+// parallel region (outside the v1 no-loops set) is rejected rather than looping forever. It
+// caps total node visits across the whole fan-out, not per-path.
 const maxParallelTraversalSteps = 10000
 
-// matchingJoin walks forward from a fork-branch's first target, returning the id of the
-// join at which the branch's parallel depth returns to zero (the fork's matching join), or
-// "" if the branch reaches an end event / dead-ends first, or a non-empty error string if a
-// step bound is exceeded (a loop) or the graph is otherwise un-analysable. Depth starts at
-// one (the originating fork already opened a level): a nested fork increments it, a join
-// decrements it. fork → join direct yields the join immediately (depth one → zero on the
-// first element when it is the matching join).
-func matchingJoin(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, startTarget string) (string, string) {
-	cur := startTarget
-	depth := 1
-	for steps := 0; ; steps++ {
+// forkClosingJoin runs a depth-balanced multi-path traversal forward from forkID, exploring
+// EVERY out-edge of every node it reaches (DFS over all branches, not just outs[0]), and
+// returns the single join at which all paths close (depth returns to zero), or a non-empty
+// error string describing the first structural fault found. Returns ("", "") only when the
+// fork has no out-edges at all (it would not have been classified a fork).
+//
+// Depth starts at one for each branch leaving the fork (the fork opened a level). At each
+// node: a nested parallel fork increments depth, a parallel join decrements it; when depth
+// reaches zero at a join, that path has closed and the join id is recorded. Every path MUST
+// close at the SAME join — any path that:
+//
+//   - reaches an end event before closing, or
+//   - dead-ends (a non-end node with no out-edges) before closing, or
+//   - closes at a join different from the one another path closed at,
+//
+// is a structural fault (deadlock-by-construction / unbalanced nesting). Because the
+// traversal follows all out-edges, an exclusive gateway inside the region whose escape edge
+// leaves the region is caught regardless of the declared flow order — the order-independence
+// the single-edge walk lacked.
+//
+// Cycles terminate two ways: a per-(node,depth) visited set prunes re-exploration of an
+// already-seen configuration on a DAG, and the global step bound rejects a genuine loop with
+// a named error.
+func forkClosingJoin(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, forkID string) (string, string) {
+	type frame struct {
+		node  string
+		depth int
+	}
+	stack := make([]frame, 0, len(outgoing[forkID]))
+	for _, b := range outgoing[forkID] {
+		stack = append(stack, frame{node: b.Target, depth: 1})
+	}
+	if len(stack) == 0 {
+		return "", ""
+	}
+
+	visited := make(map[frame]bool)
+	matched := ""
+	steps := 0
+	for len(stack) > 0 {
+		fr := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if visited[fr] {
+			continue
+		}
+		visited[fr] = true
+
+		steps++
 		if steps > maxParallelTraversalSteps {
 			return "", "a parallel-fork branch does not terminate at a join within the bound (a loop through the parallel region is outside the supported set)"
 		}
-		el, ok := byID[cur]
-		if !ok {
-			// Dangling reference; reported separately by checkFlowReferences.
-			return "", ""
-		}
-		if el.Kind == model.KindParallelGateway {
-			if isParallelFork(byID, outgoing, cur) {
-				depth++
-			} else if isParallelJoin(byID, incoming, cur) {
-				depth--
-				if depth == 0 {
-					return cur, ""
-				}
-			}
-		}
-		if el.Kind == model.KindEndEvent {
-			return "", ""
-		}
-		outs := outgoing[cur]
-		if len(outs) == 0 {
-			return "", ""
-		}
-		// Follow any single forward edge: along a balanced parallel region every branch of
-		// an inner fork leads to the same inner join, so the first edge reaches the same
-		// closing join. Exclusive-gateway branches likewise reconverge before the region
-		// closes in the v1 set.
-		cur = outs[0].Target
-	}
-}
 
-// matchingFork is the backward dual of matchingJoin: it walks backward from a join-branch's
-// source, returning the id of the fork at which the branch's parallel depth returns to zero
-// (the join's matching fork), or "" if it reaches the start / dead-ends first, or an error
-// string if a step bound is exceeded. Depth starts at one (the join already closed a
-// level): walking back over a join increments it, over a fork decrements it.
-func matchingFork(byID map[string]model.Element, incoming, outgoing map[string][]model.SequenceFlow, startSource string) (string, string) {
-	cur := startSource
-	depth := 1
-	for steps := 0; ; steps++ {
-		if steps > maxParallelTraversalSteps {
-			return "", "a parallel-join branch does not originate at a fork within the bound (a loop through the parallel region is outside the supported set)"
-		}
-		el, ok := byID[cur]
+		el, ok := byID[fr.node]
 		if !ok {
-			return "", ""
+			// Dangling reference; reported separately by checkFlowReferences. Treat as a
+			// dead-end so the fork is not silently accepted on a broken edge.
+			return "", "a parallel-fork branch reaches a dangling reference before reconverging at a join, so the matching join would be under-fed"
 		}
+
+		depth := fr.depth
 		if el.Kind == model.KindParallelGateway {
-			if isParallelJoin(byID, incoming, cur) {
+			if isParallelFork(byID, outgoing, fr.node) {
 				depth++
-			} else if isParallelFork(byID, outgoing, cur) {
+			} else if isParallelJoin(byID, incoming, fr.node) {
 				depth--
 				if depth == 0 {
-					return cur, ""
+					// This path has closed. Every path must close at the same join.
+					if matched == "" {
+						matched = fr.node
+					} else if matched != fr.node {
+						return "", "parallel-fork branches reconverge at different joins; the fork/join nesting is unbalanced"
+					}
+					continue
 				}
 			}
 		}
-		if el.Kind == model.KindStartEvent {
-			return "", ""
+
+		if el.Kind == model.KindEndEvent {
+			return "", "a parallel-fork branch escapes to an end event before reconverging at the matching join (deadlock-by-construction: the join would wait forever for this branch)"
 		}
-		ins := incoming[cur]
-		if len(ins) == 0 {
-			return "", ""
+
+		outs := outgoing[fr.node]
+		if len(outs) == 0 {
+			return "", "a parallel-fork branch dead-ends before reconverging at a join, so the matching join would be under-fed"
 		}
-		cur = ins[0].Source
+		// Explore EVERY out-edge, not just the first: an exclusive gateway fans out here,
+		// and each of its branches must also lead to the same closing join.
+		for _, f := range outs {
+			next := frame{node: f.Target, depth: depth}
+			if !visited[next] {
+				stack = append(stack, next)
+			}
+		}
 	}
+
+	return matched, ""
 }
 
 func checkUserInputTasks(elems []model.Element) []ValidationError {
