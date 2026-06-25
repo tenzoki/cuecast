@@ -29,3 +29,89 @@ Phase 0b: planner dispatched (this session). Plan-review human gate pending. Exe
 - Grounding↔Directive: 0 active decisions (both moved `[a]`→`[i]`); both Option 1 choices (tagged set-cover join, explicit-token State API) consistent with the Directive's stateless/deterministic/fail-loud constraints. No open decision conflict.
 
 **Rebalance recommendation:** none
+
+## Status
+
+Complete — coherent. Feature shipped across 2 Turns, 8 commits (7 code + 1 workbench-close, + a follow-up tracking commit for bracket-glob-missed decisions/history).
+
+## Budget
+
+| Metric | Count |
+|--------|-------|
+| Turns | 2 |
+| Tasks resolved | 7 (A, B, C, C2, D, D2, E) |
+| Issues created (by reviewers) | 3 |
+| Issues resolved | 3 |
+| Decisions answered → implemented | 2 (`[a]`→`[i]`) |
+| Commits (code) | 7 |
+| Agent errors | 0 |
+| Human gates | 1 (plan-review; approved with tagged-join Option 1) |
+
+## Per-Turn Log
+
+### Turn 1 — engine core
+- A (0de94cc) multi-token State, non-breaking; B (a04bda0) parallel_gateway + fork; C (f58c4f0) stateless tagged-arrival join.
+- coderev checkpoint: core sound; 2 High/Med issues → C2 (78fa85c) unified arrival path (fork→join-direct deadlock) + demo loop.
+- Coherence: ok.
+
+### Turn 2 — validation, tests, docs
+- D (5a99ebc) Validate parallel gateways + fixtures + e2e + determinism.
+- coderev checkpoint: 1 High (exclusive-escape deadlock false-negative) → D2 (79f1415) multi-edge Validate walk, backward walk consolidated.
+- E (512c494) docs.
+- Coherence: coherent (Phase 3 reconciler).
+
+## Commits
+
+| Hash | Bundle | What |
+|------|--------|------|
+| 0de94cc | A | multi-token State (non-breaking refactor) |
+| a04bda0 | B | parallel_gateway kind + fork |
+| f58c4f0 | C | stateless join (ArrivedVia set-cover) |
+| 78fa85c | C2 | fix: unify arrival path; fork→join-direct |
+| 5a99ebc | D | Validate parallel gateways + fixtures + tests |
+| 79f1415 | D2 | fix: Validate explores all branch edges (exclusive-escape) |
+| 512c494 | E | docs (CLAUDE.md, README) |
+
+## Session Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant O as Orchestrator
+    participant P as Planner
+    participant C as Coder
+    participant CR as Coderev
+    participant R as Reconciler
+
+    U->>O: brief 260625-multitoken (parallel fork/join)
+    O->>P: plan the feature (resolve stateless join)
+    P-->>O: plan 260625-1110 + 2 decision records
+    O->>U: GATE plan review + join-encoding choice
+    U-->>O: approve; tagged fail-loud join
+
+    Note over O: Turn 1 — engine core
+    O->>C: A multi-token State (non-breaking)
+    C-->>O: done (0de94cc)
+    O->>C: B parallel_gateway + fork
+    C-->>O: done (a04bda0)
+    O->>C: C stateless join (set-cover)
+    C-->>O: done (f58c4f0)
+    O->>CR: review engine core A+B+C
+    CR-->>O: 2 issues (High fork→join-direct, Med demo)
+    O->>C: C2 fix unify arrival path + demo
+    C-->>O: done (78fa85c)
+
+    Note over O: Turn 2 — validation, tests, docs
+    O->>C: D Validate + fixtures + e2e + determinism
+    C-->>O: done (5a99ebc)
+    O->>CR: review Validate graph analysis
+    CR-->>O: 1 High (exclusive-escape deadlock)
+    O->>C: D2 multi-edge Validate walk
+    C-->>O: done (79f1415)
+    O->>C: E docs
+    C-->>O: done (512c494)
+
+    Note over O: Converged
+    O->>R: final reconciliation (domain=code)
+    R-->>O: coherent; plan [c], 2 decisions [i], 3 issues [c]
+```
