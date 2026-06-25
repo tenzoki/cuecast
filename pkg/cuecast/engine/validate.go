@@ -234,6 +234,17 @@ func outgoingFlows(flows []model.SequenceFlow) map[string][]model.SequenceFlow {
 	return out
 }
 
+// incomingFlows groups flows by their target element id — the symmetric counterpart of
+// outgoingFlows. Shared by parallel-join execution (AccNext: a join's incoming-count and
+// the set of incoming flow ids that satisfy it) and join validation.
+func incomingFlows(flows []model.SequenceFlow) map[string][]model.SequenceFlow {
+	in := make(map[string][]model.SequenceFlow)
+	for _, f := range flows {
+		in[f.Target] = append(in[f.Target], f)
+	}
+	return in
+}
+
 func flowInSet(id string, flows []model.SequenceFlow) bool {
 	for _, f := range flows {
 		if f.ID == id {

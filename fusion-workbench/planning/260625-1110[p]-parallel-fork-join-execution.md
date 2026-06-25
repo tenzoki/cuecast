@@ -183,7 +183,7 @@ acceptance checks (AC1–AC5) and invariants.
 
 ### Bundle C — join execution (the stateless arrival algorithm)
 
-8. **Add `incomingFlows` helper.**
+8. [DONE] **Add `incomingFlows` helper.**
    - Executor: coder
    - Files: `pkg/cuecast/engine/validate.go` (next to `outgoingFlows`).
    - Changes: `incomingFlows(flows) map[string][]SequenceFlow` grouping by `Target`. Shared by
@@ -191,7 +191,7 @@ acceptance checks (AC1–AC5) and invariants.
    - Dependencies: none.
    - Acceptance: returns every flow grouped by target.
 
-9. **Join execution in `AccNext`.**
+9. [DONE] **Join execution in `AccNext`.**
    - Executor: coder
    - Files: `pkg/cuecast/engine/accnext.go`
    - Changes: when the advanced token's successor element is a `parallel_gateway` acting as a
@@ -209,7 +209,7 @@ acceptance checks (AC1–AC5) and invariants.
      parked; partial arrival leaves the join pending (the parked token(s) remain in
      `ActiveTokens`, no outgoing token).
 
-10. **Process handling for a parked join token.**
+10. [DONE] **Process handling for a parked join token.**
     - Executor: coder
     - Files: `pkg/cuecast/engine/process.go` (verify, adjust if needed).
     - Changes: ensure `Process` on a token parked at a join resolves to the join element and

@@ -230,6 +230,115 @@ func TestAccNext_ParallelGatewayFork(t *testing.T) {
 	}
 }
 
+// parallelJoinModel is the canonical balanced shape used by the join tests:
+//
+//	start -> fork -> {task_a, task_b} -> join -> end
+//
+// task_a/task_b are automatic; the join has two incoming flows (f_a_join, f_b_join) and
+// one outgoing flow (f_join_end).
+func parallelJoinModel() model.Model {
+	return model.Model{
+		ID: "parallel",
+		Elements: []model.Element{
+			{ID: "start", Kind: model.KindStartEvent},
+			{ID: "fork", Kind: model.KindParallelGateway},
+			{ID: "task_a", Kind: model.KindTask, Automatic: true},
+			{ID: "task_b", Kind: model.KindTask, Automatic: true},
+			{ID: "join", Kind: model.KindParallelGateway},
+			{ID: "end", Kind: model.KindEndEvent},
+		},
+		Flows: []model.SequenceFlow{
+			{ID: "f_start", Source: "start", Target: "fork"},
+			{ID: "f_fork_a", Source: "fork", Target: "task_a"},
+			{ID: "f_fork_b", Source: "fork", Target: "task_b"},
+			{ID: "f_a_join", Source: "task_a", Target: "join"},
+			{ID: "f_b_join", Source: "task_b", Target: "join"},
+			{ID: "f_join_end", Source: "join", Target: "end"},
+		},
+	}
+}
+
+func TestAccNext_JoinFirstBranchParks(t *testing.T) {
+	// The first branch (task_a) arriving at the join parks as a tagged token on the join;
+	// the join is pending (its incoming set is not yet covered), so no outgoing token is
+	// emitted. task_b is still in flight.
+	m := parallelJoinModel()
+	state := State{ActiveTokens: []Token{
+		{ElementID: "task_a"},
+		{ElementID: "task_b"},
+	}}
+	next, err := AccNext(m, state, Token{ElementID: "task_a"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(task_a) error: %v", err)
+	}
+	want := []Token{
+		{ElementID: "join", ArrivedVia: "f_a_join"},
+		{ElementID: "task_b"},
+	}
+	if !reflect.DeepEqual(next.ActiveTokens, want) {
+		t.Errorf("first arrival = %+v, want %+v (parked on join, pending; no outgoing token)", next.ActiveTokens, want)
+	}
+	if next.Complete {
+		t.Errorf("Complete=true after one branch arrived, want false")
+	}
+	for _, tok := range next.ActiveTokens {
+		if tok.ElementID == "end" {
+			t.Errorf("join emitted an outgoing token to end after only one branch arrived")
+		}
+	}
+}
+
+func TestAccNext_JoinLastBranchFires(t *testing.T) {
+	// With task_a already parked on the join, task_b arriving covers the join's incoming
+	// set: all parked tokens are replaced by one token on the join's outgoing target.
+	m := parallelJoinModel()
+	state := State{ActiveTokens: []Token{
+		{ElementID: "join", ArrivedVia: "f_a_join"},
+		{ElementID: "task_b"},
+	}}
+	next, err := AccNext(m, state, Token{ElementID: "task_b"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(task_b) error: %v", err)
+	}
+	want := []Token{{ElementID: "end"}}
+	if !reflect.DeepEqual(next.ActiveTokens, want) {
+		t.Errorf("join fire = %+v, want %+v (parked tokens replaced by one token on outgoing target)", next.ActiveTokens, want)
+	}
+}
+
+func TestAccNext_PendingJoinTokenIsIdempotent(t *testing.T) {
+	// Re-running AccNext on a token already parked on a not-yet-satisfied join neither
+	// duplicates nor advances it — the parked set is returned unchanged.
+	m := parallelJoinModel()
+	state := State{ActiveTokens: []Token{
+		{ElementID: "join", ArrivedVia: "f_a_join"},
+		{ElementID: "task_b"},
+	}}
+	next, err := AccNext(m, state, Token{ElementID: "join", ArrivedVia: "f_a_join"}, Context{})
+	if err != nil {
+		t.Fatalf("AccNext(parked join token) error: %v", err)
+	}
+	if !reflect.DeepEqual(next.ActiveTokens, state.ActiveTokens) {
+		t.Errorf("re-park = %+v, want unchanged %+v", next.ActiveTokens, state.ActiveTokens)
+	}
+}
+
+func TestProcess_ParkedJoinTokenRequiresNoInput(t *testing.T) {
+	// Process on a token parked on the join resolves to the join (a gateway) and returns
+	// a no-input Result.
+	m := parallelJoinModel()
+	res, err := Process(m, State{}, Token{ElementID: "join", ArrivedVia: "f_a_join"}, Context{}, model.Shape{})
+	if err != nil {
+		t.Fatalf("Process(parked join token) error: %v", err)
+	}
+	if res.RequiresInput {
+		t.Errorf("RequiresInput=true for a parked join token, want false (a gateway never requires input)")
+	}
+	if res.ActiveElementID != "join" {
+		t.Errorf("ActiveElementID=%q, want join", res.ActiveElementID)
+	}
+}
+
 func TestAccNext_Stateless(t *testing.T) {
 	m := accNextModel()
 	ctx := Context{Values: map[string]any{"amount": 5000.0}}

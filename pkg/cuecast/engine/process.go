@@ -19,6 +19,14 @@ import "github.com/tenzoki/cuecast/pkg/cuecast/model"
 // over State.ActiveTokens and calls Process for each. state is passed for symmetry
 // with AccNext and for future use; the active element comes from tok.
 //
+// A token parked on a parallel-join gateway (tok.ElementID == joinID, tok.ArrivedVia
+// set) resolves to the join element, which is a gateway: Process returns
+// RequiresInput == false with a nil Form — a gateway never requires user input. A host
+// loop may therefore call Process then AccNext on a parked join token safely. AccNext on
+// a not-yet-satisfied join is a no-op for forward progress (the token stays parked); the
+// loop must drive termination off State.Complete, NOT off whether a single AccNext moved
+// a token. The join fires inside the AccNext call that brings the last branch in.
+//
 // If tok.ElementID does not name an element in model, Process returns a structured
 // engine error rather than a form (C2).
 //
